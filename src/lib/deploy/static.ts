@@ -124,11 +124,22 @@ export async function deployStaticSite(
 
     const buildCmd = classification.buildCommand?.trim() ?? "";
     if (buildCmd) {
+      const npmCacheDir = path.join(workspace, ".npm-cache");
+      const cleanEnv: Record<string, string | undefined> = {
+        ...process.env,
+        npm_config_cache: npmCacheDir,
+        npm_config_update_notifier: "false",
+        npm_config_audit: "false",
+        npm_config_fund: "false",
+        HOME: workspace,
+      };
+      delete cleanEnv.NODE_OPTIONS;
+
       if (_manifest.hasPackageJson) {
         try {
-          await execFileAsync("npm", ["install", "--include=dev"], {
+          await execFileAsync("npm", ["install", "--include=dev", "--no-audit", "--no-fund", "--cache", npmCacheDir], {
             cwd: repositoryDirectory,
-            env: { ...process.env, NODE_ENV: "development" },
+            env: { ...cleanEnv, NODE_ENV: "development" } as NodeJS.ProcessEnv,
             maxBuffer: 10 * 1024 * 1024,
           });
         } catch (error) {
@@ -140,7 +151,7 @@ export async function deployStaticSite(
       try {
         await execFileAsync(executable, args, {
           cwd: repositoryDirectory,
-          env: { ...process.env, NODE_ENV: "production" },
+          env: { ...cleanEnv, NODE_ENV: "production" } as NodeJS.ProcessEnv,
           maxBuffer: 10 * 1024 * 1024,
         });
       } catch (error) {
