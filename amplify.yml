@@ -4,8 +4,7 @@ frontend:
     preBuild:
       commands:
         - nvm use 20
-        - corepack enable
-        - corepack prepare pnpm@latest --activate
+        - npm install -g pnpm
         - pnpm install --frozen-lockfile
     build:
       commands:
