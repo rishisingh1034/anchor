@@ -1,9 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
-import { mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
+import AdmZip from "adm-zip";
+import { Octokit } from "@octokit/rest";
 import { BucketLocationConstraint, CreateBucketCommand, PutBucketPolicyCommand, PutObjectCommand, PutPublicAccessBlockCommand } from "@aws-sdk/client-s3";
 import { CreateDistributionCommand, CreateOriginAccessControlCommand } from "@aws-sdk/client-cloudfront";
 
@@ -29,6 +31,33 @@ export class StaticDeploymentError extends Error {
 function safeBucketName(prefix: string) {
   const normalized = prefix.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/^-+|-+$/g, "") || "anchor-site";
   return `${normalized.slice(0, 35)}-${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`;
+}
+
+async function downloadAndExtractRepo(owner: string, repo: string, destination: string, token?: string) {
+  const octokit = new Octokit(token ? { auth: token } : {});
+  let response;
+  try {
+    response = await octokit.rest.repos.downloadZipballArchive({ owner, repo, ref: "HEAD" });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "unknown GitHub error";
+    throw new StaticDeploymentError("clone", `Unable to download repository archive from GitHub: ${message}`);
+  }
+
+  const zip = new AdmZip(Buffer.from(response.data as ArrayBuffer));
+  const entries = zip.getEntries();
+  for (const entry of entries) {
+    const parts = entry.entryName.split("/").filter(Boolean);
+    if (parts.length <= 1 && entry.isDirectory) continue;
+    const relativePath = parts.slice(1).join("/");
+    if (!relativePath) continue;
+    const destPath = path.join(destination, relativePath);
+    if (entry.isDirectory) {
+      await mkdir(destPath, { recursive: true });
+    } else {
+      await mkdir(path.dirname(destPath), { recursive: true });
+      await writeFile(destPath, entry.getData());
+    }
+  }
 }
 
 function buildCommandArguments(command: string) {
@@ -91,14 +120,7 @@ export async function deployStaticSite(
   const region = process.env.AWS_REGION ?? "us-east-1";
   const bucketName = safeBucketName(process.env.DEPLOY_BUCKET_PREFIX ?? "anchor-site");
   try {
-    const sourceUrl = githubToken
-      ? `https://x-access-token:${encodeURIComponent(githubToken)}@github.com/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}.git`
-      : `https://github.com/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}.git`;
-    try {
-      await execFileAsync("git", ["clone", "--depth", "1", sourceUrl, repositoryDirectory]);
-    } catch {
-      throw new StaticDeploymentError("clone", "Unable to shallow-clone the repository. Check GitHub access and repository availability.");
-    }
+    await downloadAndExtractRepo(owner, repo, repositoryDirectory, githubToken);
 
     const buildCmd = classification.buildCommand?.trim() ?? "";
     if (buildCmd) {
