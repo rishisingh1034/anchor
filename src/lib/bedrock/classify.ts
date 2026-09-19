@@ -50,7 +50,7 @@ function buildPrompt(manifest: RepoManifest) {
     files: { packageJson: manifest.hasPackageJson, dockerfile: manifest.hasDockerfile, requirementsTxt: manifest.hasRequirementsTxt, indexHtml: manifest.hasStaticIndexHtml },
     packageJson: manifest.packageJson ?? null,
   };
-  return `You classify repositories for a deployment product that ONLY supports static frontend sites hosted on S3 and CloudFront.\n\nAnalyze this compact repository manifest:\n${JSON.stringify(summary)}\n\nReturn ONLY a JSON object with exactly this shape:\n{"type":"static-frontend"|"unsupported","reason":"string","suggestedStack":["string"],"buildCommand":"string","buildOutputDir":"string"}\n\nRules:\n- Choose static-frontend only if a static build can be produced by running one safe npm command such as "npm run build".\n- For static-frontend, buildOutputDir must be a relative directory such as "dist", "build", or "out".\n- Choose unsupported for backend-only, server-rendered, API, Docker-only, or ambiguous repositories.\n- For unsupported, set buildCommand and buildOutputDir to empty strings.\n- Do not suggest Lambda, API Gateway, or any backend deployment.`;
+  return `You classify repositories for a deployment product that ONLY supports static frontend sites hosted on S3 and CloudFront.\n\nAnalyze this compact repository manifest:\n${JSON.stringify(summary)}\n\nReturn ONLY a JSON object with exactly this shape:\n{"type":"static-frontend"|"unsupported","reason":"string","suggestedStack":["string"],"buildCommand":"string","buildOutputDir":"string"}\n\nRules:\n- For static sites with no build step (e.g. plain HTML/CSS), set buildCommand to "" and buildOutputDir to ".".\n- For frontend framework sites (React, Vue, Vite, Next static, etc.), set buildCommand to the npm command (e.g. "npm run build") and buildOutputDir to the output directory (e.g. "dist", "build", or "out").\n- Choose unsupported for backend-only, server-rendered, API, Docker-only, or ambiguous repositories.\n- For unsupported, set buildCommand and buildOutputDir to empty strings.\n- Do not suggest Lambda, API Gateway, or any backend deployment.`;
 }
 
 function extractJson(text: string): unknown {
@@ -67,6 +67,17 @@ export async function classifyRepo(
 ): Promise<Classification> {
   const earlyClassification = clearlyBackendOnly(manifest);
   if (earlyClassification) return earlyClassification;
+
+  if (manifest.hasStaticIndexHtml && !manifest.hasPackageJson) {
+    return {
+      type: "static-frontend",
+      reason: "Plain static HTML/CSS/JS repository with root index.html (no build step required).",
+      suggestedStack: ["HTML", "S3", "CloudFront"],
+      buildCommand: "",
+      buildOutputDir: ".",
+    };
+  }
+
   const modelId = process.env.BEDROCK_MODEL_ID || "amazon.nova-lite-v1:0";
 
   let responseText: string;

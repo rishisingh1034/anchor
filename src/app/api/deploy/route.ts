@@ -50,7 +50,7 @@ export async function POST(request: NextRequest) {
   try {
     const deployment = await deployStaticSite(manifest, classification, owner, repo, githubToken);
     const tableName = process.env.DEPLOYMENTS_TABLE || "deployments";
-    const record = { owner, repo, status: "provisioning", liveUrl: deployment.liveUrl, timestamp: new Date().toISOString() };
+    const record = { owner, repo, status: "deployed", liveUrl: deployment.liveUrl, timestamp: new Date().toISOString() };
     await dynamo.send(new PutCommand({ TableName: tableName, Item: record }));
     return Response.json(record, { status: 201 });
   } catch (error) {

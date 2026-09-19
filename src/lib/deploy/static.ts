@@ -46,11 +46,15 @@ function contentType(filePath: string) {
 
 async function listFiles(directory: string): Promise<string[]> {
   const entries = await readdir(directory, { withFileTypes: true });
-  const nested = await Promise.all(entries.map(async (entry) => {
-    const filePath = path.join(directory, entry.name);
-    if (entry.isDirectory()) return listFiles(filePath);
-    return entry.isFile() ? [filePath] : [];
-  }));
+  const nested = await Promise.all(
+    entries
+      .filter((entry) => entry.name !== ".git")
+      .map(async (entry) => {
+        const filePath = path.join(directory, entry.name);
+        if (entry.isDirectory()) return listFiles(filePath);
+        return entry.isFile() ? [filePath] : [];
+      }),
+  );
   return nested.flat();
 }
 
