@@ -7,7 +7,7 @@ export const authOptions: NextAuthOptions = {
     GitHubProvider({
       clientId: process.env.GITHUB_CLIENT_ID ?? "",
       clientSecret: process.env.GITHUB_CLIENT_SECRET ?? "",
-      authorization: { params: { scope: "read:user repo" } },
+      authorization: { params: { scope: "read:user public_repo" } },
     }),
   ],
   session: { strategy: "jwt" },
