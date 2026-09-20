@@ -2,6 +2,7 @@
 
 import { SessionProvider, signIn, signOut, useSession } from "next-auth/react";
 import { type FormEvent, useEffect, useRef, useState } from "react";
+import { estimateMonthlyCost, formatBytes, type CostEstimate } from "@/lib/cost/estimate";
 
 interface DeploymentItem {
   owner: string;
@@ -9,6 +10,9 @@ interface DeploymentItem {
   status: string;
   liveUrl: string;
   timestamp: string;
+  totalSizeBytes?: number;
+  estimatedMonthlyCostUsd?: number;
+  costBreakdown?: CostEstimate;
 }
 
 interface StepInfo {
@@ -65,6 +69,8 @@ function DashboardContent() {
   const [failedStage, setFailedStage] = useState<string>("");
   const [deploymentError, setDeploymentError] = useState("");
   const [liveUrl, setLiveUrl] = useState("");
+  const [costEstimate, setCostEstimate] = useState<CostEstimate | null>(null);
+  const [showCostBreakdown, setShowCostBreakdown] = useState(false);
 
   const [deployments, setDeployments] = useState<DeploymentItem[]>([]);
   const [isLoadingDeployments, setIsLoadingDeployments] = useState(false);
@@ -108,6 +114,8 @@ function DashboardContent() {
     setResult("");
     setCanDeploy(false);
     setLiveUrl("");
+    setCostEstimate(null);
+    setShowCostBreakdown(false);
     setDeploymentError("");
     setCurrentDeployStage("");
     setFailedStage("");
@@ -137,6 +145,8 @@ function DashboardContent() {
     setFailedStage("");
     setDeploymentError("");
     setLiveUrl("");
+    setCostEstimate(null);
+    setShowCostBreakdown(false);
 
     // Clear any previous interval
     if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
@@ -156,6 +166,9 @@ function DashboardContent() {
             liveUrl?: string;
             errorMessage?: string;
             failedStage?: string;
+            totalSizeBytes?: number;
+            estimatedMonthlyCostUsd?: number;
+            costBreakdown?: CostEstimate;
           };
 
           if (statusData.status && statusData.status !== "pending") {
@@ -163,6 +176,11 @@ function DashboardContent() {
 
             if (statusData.status === "deployed") {
               if (statusData.liveUrl) setLiveUrl(statusData.liveUrl);
+              if (statusData.costBreakdown) {
+                setCostEstimate(statusData.costBreakdown);
+              } else if (typeof statusData.totalSizeBytes === "number") {
+                setCostEstimate(estimateMonthlyCost(statusData.totalSizeBytes));
+              }
               if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
               setIsDeploying(false);
               fetchDeployments();
@@ -211,6 +229,11 @@ function DashboardContent() {
       }
 
       setLiveUrl(data.liveUrl);
+      if ("costBreakdown" in data && data.costBreakdown) {
+        setCostEstimate(data.costBreakdown as CostEstimate);
+      } else if ("totalSizeBytes" in data && typeof data.totalSizeBytes === "number") {
+        setCostEstimate(estimateMonthlyCost(data.totalSizeBytes));
+      }
       setCurrentDeployStage("deployed");
       fetchDeployments();
     } catch {
@@ -453,21 +476,28 @@ function DashboardContent() {
 
               {/* Success Result Box */}
               {liveUrl && (
-                <div className="rounded-xl border border-emerald-500/40 bg-emerald-950/30 p-5 mt-4 space-y-3">
+                <div className="rounded-xl border border-emerald-500/40 bg-emerald-950/30 p-5 mt-4 space-y-4">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     <div className="space-y-1">
                       <div className="flex items-center gap-2 text-xs font-semibold text-emerald-400">
                         <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
                         Provisioned on CloudFront Edge CDN
                       </div>
-                      <a
-                        href={liveUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-sm font-mono text-white underline hover:text-emerald-300 transition break-all"
-                      >
-                        {liveUrl}
-                      </a>
+                      <div className="flex flex-wrap items-center gap-3">
+                        <a
+                          href={liveUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-sm font-mono text-white underline hover:text-emerald-300 transition break-all"
+                        >
+                          {liveUrl}
+                        </a>
+                        {costEstimate && (
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-900/50 border border-emerald-700/60 px-2.5 py-0.5 text-xs font-semibold text-emerald-300 font-mono">
+                            Est. ~{costEstimate.formattedMonthlyCost}/month (low-traffic estimate)
+                          </span>
+                        )}
+                      </div>
                     </div>
                     <a
                       href={liveUrl}
@@ -479,6 +509,49 @@ function DashboardContent() {
                       <span>&rarr;</span>
                     </a>
                   </div>
+
+                  {/* Expandable Cost Breakdown */}
+                  {costEstimate && (
+                    <div className="rounded-lg border border-emerald-800/50 bg-zinc-950/70 p-3 space-y-2 text-xs">
+                      <div className="flex items-center justify-between">
+                        <span className="text-zinc-400 text-xs font-medium">
+                          AWS Cost Estimation Breakdown • {costEstimate.assumptions.totalSizeFormatted} total build output
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setShowCostBreakdown(!showCostBreakdown)}
+                          className="text-[11px] text-emerald-400 hover:text-emerald-200 underline font-medium"
+                        >
+                          {showCostBreakdown ? "Hide Breakdown ▲" : "View Breakdown ▼"}
+                        </button>
+                      </div>
+
+                      {showCostBreakdown && (
+                        <div className="pt-2 border-t border-zinc-800 space-y-2 text-[11px]">
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                            <div className="bg-zinc-900/80 p-2.5 rounded border border-zinc-800">
+                              <span className="text-zinc-400 block text-[10px]">S3 Storage (us-east-1):</span>
+                              <span className="font-mono text-white font-semibold">${costEstimate.breakdown.s3StorageUsd.toFixed(5)}/mo</span>
+                              <span className="text-[10px] text-zinc-500 block mt-0.5">$0.023/GB-month</span>
+                            </div>
+                            <div className="bg-zinc-900/80 p-2.5 rounded border border-zinc-800">
+                              <span className="text-zinc-400 block text-[10px]">CloudFront Transfer (10k visits):</span>
+                              <span className="font-mono text-white font-semibold">${costEstimate.breakdown.cloudfrontTransferUsd.toFixed(4)}/mo</span>
+                              <span className="text-[10px] text-zinc-500 block mt-0.5">$0.085/GB tier</span>
+                            </div>
+                            <div className="bg-zinc-900/80 p-2.5 rounded border border-zinc-800">
+                              <span className="text-zinc-400 block text-[10px]">CloudFront HTTPS Requests:</span>
+                              <span className="font-mono text-white font-semibold">${costEstimate.breakdown.cloudfrontRequestsUsd.toFixed(4)}/mo</span>
+                              <span className="text-[10px] text-zinc-500 block mt-0.5">$0.0075 / 10k reqs</span>
+                            </div>
+                          </div>
+                          <p className="text-[10px] text-zinc-400 italic pt-1">
+                            {costEstimate.assumptions.caveat}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   <p className="text-[11px] text-zinc-400 border-t border-emerald-900/40 pt-2 flex items-center gap-1.5">
                     <span>⚡</span>
@@ -538,9 +611,17 @@ function DashboardContent() {
                   className="flex flex-col gap-2 px-6 py-4 sm:flex-row sm:items-center sm:justify-between hover:bg-zinc-900/50 transition"
                 >
                   <div className="space-y-1">
-                    <p className="font-semibold text-sm text-white">
-                      {item.owner}/{item.repo}
-                    </p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="font-semibold text-sm text-white">
+                        {item.owner}/{item.repo}
+                      </p>
+                      {typeof item.estimatedMonthlyCostUsd === "number" && (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-950/80 border border-emerald-800/50 px-2 py-0.5 text-[10px] font-mono text-emerald-300">
+                          <span>Est. ~${item.estimatedMonthlyCostUsd < 0.01 ? "<0.01" : item.estimatedMonthlyCostUsd.toFixed(2)}/mo</span>
+                          {item.totalSizeBytes ? <span className="text-emerald-500">({formatBytes(item.totalSizeBytes)})</span> : null}
+                        </span>
+                      )}
+                    </div>
                     <p className="text-xs text-zinc-500">
                       {item.timestamp ? new Date(item.timestamp).toLocaleString() : "Recent"}
                     </p>

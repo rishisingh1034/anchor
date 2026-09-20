@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { formatBytes } from "@/lib/cost/estimate";
 
 interface PublicDeployment {
   owner: string;
@@ -9,6 +10,8 @@ interface PublicDeployment {
   status: string;
   liveUrl: string;
   timestamp: string;
+  totalSizeBytes?: number;
+  estimatedMonthlyCostUsd?: number;
 }
 
 function getStackBadge(repo: string) {
@@ -186,11 +189,19 @@ export default function Home() {
                         <h3 className="font-semibold text-white text-base tracking-tight group-hover:text-indigo-300 transition truncate">
                           {dep.owner}/{dep.repo}
                         </h3>
-                        <div className="flex items-center gap-1.5 mt-1">
-                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                          <span className="text-xs text-emerald-400/90 font-medium">
-                            Active on CloudFront
-                          </span>
+                        <div className="flex flex-wrap items-center gap-2 mt-1">
+                          <div className="flex items-center gap-1.5">
+                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                            <span className="text-xs text-emerald-400/90 font-medium">
+                              Active on CloudFront
+                            </span>
+                          </div>
+                          {typeof dep.estimatedMonthlyCostUsd === "number" && (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-950/80 border border-emerald-800/40 px-2 py-0.5 text-[10px] font-mono text-emerald-300">
+                              <span>Est. ~${dep.estimatedMonthlyCostUsd < 0.01 ? "<0.01" : dep.estimatedMonthlyCostUsd.toFixed(2)}/mo</span>
+                              {dep.totalSizeBytes ? <span className="text-emerald-500">({formatBytes(dep.totalSizeBytes)})</span> : null}
+                            </span>
+                          )}
                         </div>
                       </div>
                     </div>

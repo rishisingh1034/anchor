@@ -41,6 +41,9 @@ export async function GET(request: NextRequest) {
         failedStage: item.failedStage ? String(item.failedStage) : undefined,
         repo: item.repo ? String(item.repo) : undefined,
         updatedAt: item.updatedAt ? String(item.updatedAt) : undefined,
+        totalSizeBytes: typeof item.totalSizeBytes === "number" ? item.totalSizeBytes : undefined,
+        estimatedMonthlyCostUsd: typeof item.estimatedMonthlyCostUsd === "number" ? item.estimatedMonthlyCostUsd : undefined,
+        costBreakdown: item.costBreakdown ? item.costBreakdown : undefined,
       },
       {
         status: 200,

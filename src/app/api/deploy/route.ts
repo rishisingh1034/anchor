@@ -6,6 +6,7 @@ import { z } from "zod";
 import { dynamo } from "@/lib/aws/clients";
 import { classifyRepo } from "@/lib/bedrock/classify";
 import { authOptions } from "@/lib/auth";
+import { estimateMonthlyCost, type CostEstimate } from "@/lib/cost/estimate";
 import { deployStaticSite, StaticDeploymentError } from "@/lib/deploy/static";
 import { getRepoManifest, RepoManifestError } from "@/lib/github/repo";
 
@@ -101,7 +102,14 @@ export async function POST(request: NextRequest) {
   // 3. Helper to update live progress state in DynamoDB
   const updateStatus = async (
     status: string,
-    extra?: { liveUrl?: string; errorMessage?: string; failedStage?: string },
+    extra?: {
+      liveUrl?: string;
+      errorMessage?: string;
+      failedStage?: string;
+      totalSizeBytes?: number;
+      estimatedMonthlyCostUsd?: number;
+      costBreakdown?: CostEstimate;
+    },
   ) => {
     try {
       const updateExprParts: string[] = ["#status = :status", "#updatedAt = :updatedAt"];
@@ -118,6 +126,21 @@ export async function POST(request: NextRequest) {
         updateExprParts.push("#liveUrl = :liveUrl");
         exprAttrNames["#liveUrl"] = "liveUrl";
         exprAttrValues[":liveUrl"] = extra.liveUrl;
+      }
+      if (typeof extra?.totalSizeBytes === "number") {
+        updateExprParts.push("#totalSizeBytes = :totalSizeBytes");
+        exprAttrNames["#totalSizeBytes"] = "totalSizeBytes";
+        exprAttrValues[":totalSizeBytes"] = extra.totalSizeBytes;
+      }
+      if (typeof extra?.estimatedMonthlyCostUsd === "number") {
+        updateExprParts.push("#estimatedMonthlyCostUsd = :estimatedMonthlyCostUsd");
+        exprAttrNames["#estimatedMonthlyCostUsd"] = "estimatedMonthlyCostUsd";
+        exprAttrValues[":estimatedMonthlyCostUsd"] = extra.estimatedMonthlyCostUsd;
+      }
+      if (extra?.costBreakdown) {
+        updateExprParts.push("#costBreakdown = :costBreakdown");
+        exprAttrNames["#costBreakdown"] = "costBreakdown";
+        exprAttrValues[":costBreakdown"] = extra.costBreakdown;
       }
       if (extra?.errorMessage) {
         updateExprParts.push("#errorMessage = :errorMessage");
@@ -204,7 +227,14 @@ export async function POST(request: NextRequest) {
       },
     );
 
-    await updateStatus("deployed", { liveUrl: deployment.liveUrl });
+    const costEstimate = estimateMonthlyCost(deployment.totalSizeBytes);
+
+    await updateStatus("deployed", {
+      liveUrl: deployment.liveUrl,
+      totalSizeBytes: deployment.totalSizeBytes,
+      estimatedMonthlyCostUsd: costEstimate.totalMonthlyCostUsd,
+      costBreakdown: costEstimate,
+    });
 
     // Record user rate-limit ledger item
     const rateLimitRecord = {
@@ -223,6 +253,9 @@ export async function POST(request: NextRequest) {
       liveUrl: deployment.liveUrl,
       timestamp,
       deployedBy: userId,
+      totalSizeBytes: deployment.totalSizeBytes,
+      estimatedMonthlyCostUsd: costEstimate.totalMonthlyCostUsd,
+      costBreakdown: costEstimate,
     };
 
     return Response.json(finalRecord, { status: 201 });

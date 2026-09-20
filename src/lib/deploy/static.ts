@@ -19,6 +19,7 @@ export interface StaticDeployment {
   liveUrl: string;
   bucketName: string;
   distributionId: string;
+  totalSizeBytes: number;
 }
 
 export class StaticDeploymentError extends Error {
@@ -87,21 +88,26 @@ async function listFiles(directory: string): Promise<string[]> {
   return nested.flat();
 }
 
-async function uploadDirectory(bucketName: string, outputDirectory: string) {
+async function uploadDirectory(bucketName: string, outputDirectory: string): Promise<number> {
   const files = await listFiles(outputDirectory);
   if (!files.length) throw new StaticDeploymentError("upload", "The build output directory is empty.");
+  let totalSizeBytes = 0;
   try {
     await Promise.all(files.map(async (filePath) => {
       const key = path.relative(outputDirectory, filePath).split(path.sep).join("/");
+      const body = await readFile(filePath);
+      totalSizeBytes += body.byteLength;
       await s3.send(new PutObjectCommand({
         Bucket: bucketName,
         Key: key,
-        Body: await readFile(filePath),
+        Body: body,
         ContentType: contentType(filePath),
         CacheControl: key === "index.html" ? "no-cache" : "public, max-age=31536000, immutable",
       }));
     }));
+    return totalSizeBytes;
   } catch (error) {
+    if (error instanceof StaticDeploymentError) throw error;
     throw new StaticDeploymentError("upload", `Failed to upload the static build output: ${error instanceof Error ? error.message : "unknown error"}`);
   }
 }
@@ -175,13 +181,14 @@ export async function deployStaticSite(
     }
 
     await onProgress?.("uploading");
+    let totalSizeBytes = 0;
     try {
       await s3.send(new CreateBucketCommand({ Bucket: bucketName, ...(region === "us-east-1" ? {} : { CreateBucketConfiguration: { LocationConstraint: region as BucketLocationConstraint } }) }));
       await s3.send(new PutPublicAccessBlockCommand({
         Bucket: bucketName,
         PublicAccessBlockConfiguration: { BlockPublicAcls: true, BlockPublicPolicy: true, IgnorePublicAcls: true, RestrictPublicBuckets: true },
       }));
-      await uploadDirectory(bucketName, outputDirectory);
+      totalSizeBytes = await uploadDirectory(bucketName, outputDirectory);
     } catch (error) {
       if (error instanceof StaticDeploymentError) throw error;
       throw new StaticDeploymentError("upload", `Unable to create or configure the S3 deployment bucket: ${error instanceof Error ? error.message : "unknown error"}`);
@@ -209,7 +216,7 @@ export async function deployStaticSite(
         Bucket: bucketName,
         Policy: JSON.stringify({ Version: "2012-10-17", Statement: [{ Effect: "Allow", Principal: { Service: "cloudfront.amazonaws.com" }, Action: "s3:GetObject", Resource: `arn:aws:s3:::${bucketName}/*`, Condition: { StringEquals: { "AWS:SourceArn": created.ARN } } }] }),
       }));
-      return { liveUrl: `https://${created.DomainName}`, bucketName, distributionId: created.Id };
+      return { liveUrl: `https://${created.DomainName}`, bucketName, distributionId: created.Id, totalSizeBytes };
     } catch (error) {
       throw new StaticDeploymentError("distribution", `Unable to create or configure the CloudFront distribution: ${error instanceof Error ? error.message : "unknown error"}`);
     }

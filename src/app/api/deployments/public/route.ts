@@ -1,5 +1,6 @@
 import { ScanCommand } from "@aws-sdk/lib-dynamodb";
 import { dynamo } from "@/lib/aws/clients";
+import { estimateMonthlyCost } from "@/lib/cost/estimate";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -10,6 +11,8 @@ export interface PublicDeploymentRecord {
   status: string;
   liveUrl: string;
   timestamp: string;
+  totalSizeBytes?: number;
+  estimatedMonthlyCostUsd?: number;
 }
 
 export async function GET() {
@@ -22,13 +25,22 @@ export async function GET() {
     // Filter and sanitize: non-sensitive public fields only
     const deployments: PublicDeploymentRecord[] = rawItems
       .filter((item) => item.status === "deployed" && typeof item.liveUrl === "string" && item.liveUrl.length > 0 && !String(item.owner).startsWith("user#"))
-      .map((item) => ({
-        owner: String(item.owner || "unknown"),
-        repo: String(item.repo || "unknown"),
-        status: String(item.status || "deployed"),
-        liveUrl: String(item.liveUrl),
-        timestamp: String(item.timestamp || new Date().toISOString()),
-      }))
+      .map((item) => {
+        const totalSizeBytes = typeof item.totalSizeBytes === "number" ? item.totalSizeBytes : undefined;
+        let estimatedMonthlyCostUsd = typeof item.estimatedMonthlyCostUsd === "number" ? item.estimatedMonthlyCostUsd : undefined;
+        if (typeof totalSizeBytes === "number" && !estimatedMonthlyCostUsd) {
+          estimatedMonthlyCostUsd = estimateMonthlyCost(totalSizeBytes).totalMonthlyCostUsd;
+        }
+        return {
+          owner: String(item.owner || "unknown"),
+          repo: String(item.repo || "unknown"),
+          status: String(item.status || "deployed"),
+          liveUrl: String(item.liveUrl),
+          timestamp: String(item.timestamp || new Date().toISOString()),
+          totalSizeBytes,
+          estimatedMonthlyCostUsd,
+        };
+      })
       // Deduplicate by repo if multiple deployments of the same repo exist, keeping newest
       .reduce<PublicDeploymentRecord[]>((acc, current) => {
         const existingIndex = acc.findIndex((item) => item.owner === current.owner && item.repo === current.repo);
