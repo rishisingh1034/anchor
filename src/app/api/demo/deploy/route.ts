@@ -203,17 +203,7 @@ export async function POST(request: NextRequest) {
   }
 
   // 5. Stage: Analyzing (Manifest inspection)
-  const githubToken = process.env.DEMO_GITHUB_TOKEN || process.env.GITHUB_TOKEN;
-  if (!githubToken) {
-    await updateStatus("failed", {
-      errorMessage: "Demo server is missing GitHub API credentials.",
-      failedStage: "analyzing",
-    });
-    return Response.json(
-      { error: "Demo server is missing GitHub API credentials." },
-      { status: 500 },
-    );
-  }
+  const githubToken = process.env.DEMO_GITHUB_TOKEN || process.env.GITHUB_TOKEN || undefined;
 
   let manifest;
   try {

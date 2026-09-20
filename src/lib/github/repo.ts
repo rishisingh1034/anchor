@@ -49,9 +49,9 @@ function getTopLevelFileNames(contents: unknown): Set<string> {
 export async function getRepoManifest(
   owner: string,
   repo: string,
-  token: string,
+  token?: string,
 ): Promise<RepoManifest> {
-  const octokit = new Octokit({ auth: token });
+  const octokit = new Octokit(token ? { auth: token } : {});
 
   try {
     const { data: rootContents } = await octokit.rest.repos.getContent({ owner, repo, path: "" });
