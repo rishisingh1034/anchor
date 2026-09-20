@@ -17,25 +17,49 @@ interface PublicDeployment {
 
 const DEMO_CARDS = [
   {
-    repo: "sveltejs/template",
-    title: "Svelte 4 App",
-    description: "Rollup bundle with HTML/JS/CSS assets",
-    tag: "Svelte + Rollup",
-    badgeColor: "border-orange-500/30 bg-orange-500/10 text-orange-300",
-    buttonLabel: "Deploy Svelte Demo",
+    repo: "gabrielecirulli/2048",
+    title: "2048 Puzzle Game",
+    description: "Iconic sliding tile puzzle game (13.4k ⭐) in pure JavaScript & CSS",
+    tag: "Canvas Game",
+    badgeColor: "border-amber-500/30 bg-amber-500/10 text-amber-300",
+    buttonLabel: "Deploy 2048 Game",
+  },
+  {
+    repo: "victorqribeiro/isocity",
+    title: "IsoCity Simulator",
+    description: "Isometric SimCity-style urban builder with roads, zones, and animations",
+    tag: "Simulation",
+    badgeColor: "border-purple-500/30 bg-purple-500/10 text-purple-300",
+    buttonLabel: "Deploy IsoCity Sim",
+  },
+  {
+    repo: "jakesgordon/javascript-tetris",
+    title: "Classic Arcade Tetris",
+    description: "Retro arcade falling-block puzzle game with responsive canvas rendering",
+    tag: "Arcade Game",
+    badgeColor: "border-pink-500/30 bg-pink-500/10 text-pink-300",
+    buttonLabel: "Deploy Tetris Demo",
   },
   {
     repo: "SafdarJamal/vite-template-react",
     title: "Vite + React SPA",
-    description: "Modern Single Page App with fast build pipeline",
+    description: "Modern Single Page App with fast component build pipeline",
     tag: "Vite + React",
     badgeColor: "border-cyan-500/30 bg-cyan-500/10 text-cyan-300",
     buttonLabel: "Deploy React Demo",
   },
   {
+    repo: "sveltejs/template",
+    title: "Svelte 4 App",
+    description: "Rollup bundle with reactive components and scoped stylesheets",
+    tag: "Svelte + Rollup",
+    badgeColor: "border-orange-500/30 bg-orange-500/10 text-orange-300",
+    buttonLabel: "Deploy Svelte Demo",
+  },
+  {
     repo: "asprooo/mon-portfolio",
     title: "Developer Portfolio",
-    description: "Clean responsive static HTML5 showcase",
+    description: "Clean responsive static HTML5 showcase with dark aesthetic",
     tag: "Static HTML",
     badgeColor: "border-emerald-500/30 bg-emerald-500/10 text-emerald-300",
     buttonLabel: "Deploy Portfolio Demo",
@@ -44,6 +68,9 @@ const DEMO_CARDS = [
 
 function getStackBadge(repo: string) {
   const lower = repo.toLowerCase();
+  if (lower.includes("2048") || lower.includes("tetris") || lower.includes("isocity")) {
+    return { label: "Web App / Game", color: "border-amber-500/30 bg-amber-500/10 text-amber-300" };
+  }
   if (lower.includes("vite") || lower.includes("react")) {
     return { label: "Vite + React", color: "border-cyan-500/30 bg-cyan-500/10 text-cyan-300" };
   }
@@ -314,8 +341,8 @@ export default function Home() {
             </div>
           </div>
 
-          {/* 3 Interactive Demo Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-5 pt-8">
+          {/* 6 Interactive Real App & Game Demo Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 pt-8">
             {DEMO_CARDS.map((card) => {
               const isThisDeploying = isDemoDeploying && activeDemoRepo === card.repo;
               const isThisActive = activeDemoRepo === card.repo;

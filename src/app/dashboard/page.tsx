@@ -299,9 +299,12 @@ function DashboardContent() {
           <div className="flex flex-wrap items-center gap-2 pt-1 text-xs">
             <span className="text-zinc-500 font-medium">Demo Allow-list:</span>
             {[
-              "asprooo/mon-portfolio",
+              "gabrielecirulli/2048",
+              "victorqribeiro/isocity",
+              "jakesgordon/javascript-tetris",
               "SafdarJamal/vite-template-react",
               "sveltejs/template",
+              "asprooo/mon-portfolio",
             ].map((demoRepo) => (
               <button
                 key={demoRepo}

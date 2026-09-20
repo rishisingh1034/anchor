@@ -21,6 +21,9 @@ const ALLOWED_DEMO_REPOS = [
   "asprooo/mon-portfolio",
   "safdarjamal/vite-template-react",
   "sveltejs/template",
+  "gabrielecirulli/2048",
+  "victorqribeiro/isocity",
+  "jakesgordon/javascript-tetris",
 ];
 
 const MAX_HOURLY_DEMO_DEPLOYMENTS = 10;
