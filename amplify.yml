@@ -8,7 +8,7 @@ frontend:
         - pnpm install --frozen-lockfile
     build:
       commands:
-        - env | grep -E "^(GITHUB_CLIENT_ID|GITHUB_CLIENT_SECRET|NEXTAUTH_SECRET|NEXTAUTH_URL|AWS_REGION|BEDROCK_MODEL_ID|DEPLOYMENTS_TABLE|DEPLOY_BUCKET_PREFIX)=" >> .env.production
+        - env | grep -E "^(GITHUB_CLIENT_ID|GITHUB_CLIENT_SECRET|NEXTAUTH_SECRET|NEXTAUTH_URL|AWS_REGION|BEDROCK_MODEL_ID|DEPLOYMENTS_TABLE|DEPLOY_BUCKET_PREFIX|DEMO_GITHUB_TOKEN)=" >> .env.production
         - pnpm run build
   artifacts:
     baseDirectory: .next
