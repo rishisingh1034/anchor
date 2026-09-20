@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { CostEstimate } from "@/lib/cost/estimate";
 
 export interface StepInfo {
@@ -65,6 +65,58 @@ export function DeployProgress({
   onDismiss,
 }: DeployProgressProps) {
   const [showCostBreakdown, setShowCostBreakdown] = useState(false);
+  const [isDnsReady, setIsDnsReady] = useState(false);
+  const [dnsSeconds, setDnsSeconds] = useState(0);
+
+  useEffect(() => {
+    if (!liveUrl) {
+      setIsDnsReady(false);
+      setDnsSeconds(0);
+      return;
+    }
+
+    let isMounted = true;
+    let timer: NodeJS.Timeout | null = null;
+    let probeTimer: NodeJS.Timeout | null = null;
+    let currentDnsReady = false;
+
+    setIsDnsReady(false);
+    setDnsSeconds(0);
+
+    const checkDns = async () => {
+      try {
+        await fetch(`${liveUrl}?_probe=${Date.now()}`, {
+          mode: "no-cors",
+          cache: "no-store",
+        });
+        if (isMounted) {
+          currentDnsReady = true;
+          setIsDnsReady(true);
+        }
+      } catch {
+        // DNS still propagating
+      }
+    };
+
+    checkDns();
+    probeTimer = setInterval(checkDns, 2500);
+
+    timer = setInterval(() => {
+      setDnsSeconds((prev) => {
+        if (prev >= 50 && !currentDnsReady) {
+          currentDnsReady = true;
+          setIsDnsReady(true);
+        }
+        return prev + 1;
+      });
+    }, 1000);
+
+    return () => {
+      isMounted = false;
+      if (timer) clearInterval(timer);
+      if (probeTimer) clearInterval(probeTimer);
+    };
+  }, [liveUrl]);
 
   if (!currentDeployStage) return null;
 
@@ -183,14 +235,31 @@ export function DeployProgress({
         })}
       </div>
 
-      {/* Success Result Box */}
+      {/* Success Result Box with DNS Resolution Health-Check */}
       {liveUrl && (
-        <div className="rounded-xl border border-emerald-500/40 bg-emerald-950/30 p-5 mt-4 space-y-4">
+        <div
+          className={`rounded-xl border p-5 mt-4 space-y-4 transition-all duration-300 ${
+            isDnsReady
+              ? "border-emerald-500/40 bg-emerald-950/30 shadow-lg shadow-emerald-950/40"
+              : "border-amber-500/40 bg-amber-950/20 shadow-lg shadow-amber-950/30"
+          }`}
+        >
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div className="space-y-1">
-              <div className="flex items-center gap-2 text-xs font-semibold text-emerald-400">
-                <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-                Provisioned on CloudFront Edge CDN
+              <div className="flex items-center gap-2 text-xs font-semibold">
+                {isDnsReady ? (
+                  <>
+                    <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+                    <span className="text-emerald-400">Verified Active on CloudFront Edge CDN</span>
+                  </>
+                ) : (
+                  <>
+                    <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-amber-400 border-t-transparent" />
+                    <span className="text-amber-300">
+                      Propagating Global DNS (~{Math.max(0, 45 - dnsSeconds)}s remaining)…
+                    </span>
+                  </>
+                )}
               </div>
               <div className="flex flex-wrap items-center gap-3">
                 <a
@@ -201,6 +270,11 @@ export function DeployProgress({
                 >
                   {liveUrl}
                 </a>
+                {!isDnsReady && (
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-950/80 border border-amber-700/60 px-2.5 py-0.5 text-xs font-medium text-amber-300 font-mono animate-pulse">
+                    <span>Probing edge resolvers ({dnsSeconds}s)</span>
+                  </span>
+                )}
                 {costEstimate && (
                   <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-900/50 border border-emerald-700/60 px-2.5 py-0.5 text-xs font-semibold text-emerald-300 font-mono">
                     Est. ~{costEstimate.formattedMonthlyCost}/month (low-traffic estimate)
@@ -208,16 +282,44 @@ export function DeployProgress({
                 )}
               </div>
             </div>
-            <a
-              href={liveUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-500 px-4 py-2 text-xs font-semibold text-zinc-950 hover:bg-emerald-400 transition"
-            >
-              <span>Visit Live Site</span>
-              <span>&rarr;</span>
-            </a>
+
+            <div className="flex items-center gap-2">
+              <a
+                href={liveUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={`inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-xs font-semibold transition shadow-md ${
+                  isDnsReady
+                    ? "bg-emerald-500 text-zinc-950 hover:bg-emerald-400 active:scale-[0.98]"
+                    : "bg-amber-500 text-zinc-950 hover:bg-amber-400 active:scale-[0.98]"
+                }`}
+              >
+                <span>{isDnsReady ? "Visit Live Site" : "Open URL (Warming DNS)"}</span>
+                <span>&rarr;</span>
+              </a>
+            </div>
           </div>
+
+          {!isDnsReady && (
+            <div className="rounded-lg border border-amber-800/40 bg-zinc-950/70 p-3.5 space-y-2.5">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-amber-200 font-medium flex items-center gap-2">
+                  <span className="inline-block h-2 w-2 rounded-full bg-amber-400 animate-ping" />
+                  <span>CloudFront distribution provisioned — warming global edge DNS</span>
+                </span>
+                <span className="text-[11px] font-mono text-amber-400/80">{dnsSeconds}s elapsed</span>
+              </div>
+              <div className="w-full bg-zinc-900 rounded-full h-1.5 overflow-hidden">
+                <div
+                  className="bg-gradient-to-r from-amber-500 to-emerald-400 h-full transition-all duration-1000 ease-out"
+                  style={{ width: `${Math.min(100, Math.max(10, (dnsSeconds / 45) * 100))}%` }}
+                />
+              </div>
+              <p className="text-[11px] text-zinc-400 leading-relaxed">
+                Brand-new CloudFront distributions take ~30–60s for global DNS resolvers to propagate. This card probes resolution continuously and turns green automatically the second the edge answers.
+              </p>
+            </div>
+          )}
 
           {/* Expandable Cost Breakdown */}
           {costEstimate && (
@@ -265,7 +367,7 @@ export function DeployProgress({
           <p className="text-[11px] text-zinc-400 border-t border-emerald-900/40 pt-2 flex items-center gap-1.5">
             <span>⚡</span>
             <span>
-              <strong>DNS Propagation:</strong> Newly provisioned CloudFront URLs take ~60–90s to propagate across global DNS resolvers. If your browser shows <code className="text-zinc-300">NXDOMAIN</code> initially, wait a minute and refresh.
+              <strong>Edge CDN Status:</strong> {isDnsReady ? "Global DNS active and verified." : "Resolving edge DNS routes in the background..."}
             </span>
           </p>
         </div>
