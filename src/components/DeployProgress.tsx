@@ -89,7 +89,7 @@ export function DeployProgress({
     setDnsSeconds(0);
 
     const checkDns = async () => {
-      // 1. Try server-side DNS resolution endpoint
+      // Perform server-side DNS and HTTP probe check
       try {
         const res = await fetch(`/api/dns-check?url=${encodeURIComponent(liveUrl)}`, {
           cache: "no-store",
@@ -103,21 +103,7 @@ export function DeployProgress({
           }
         }
       } catch {
-        // Fallback to client probe
-      }
-
-      // 2. Try direct client fetch (resolves when DNS is ready and TCP/TLS handshake succeeds)
-      try {
-        await fetch(`${liveUrl}?_probe=${Date.now()}`, {
-          mode: "no-cors",
-          cache: "no-store",
-        });
-        if (isMounted) {
-          setIsDnsReady(true);
-          if (probeTimer) clearInterval(probeTimer);
-        }
-      } catch {
-        // DNS still propagating (NXDOMAIN)
+        // Probe endpoint error, will retry on next tick
       }
     };
 
@@ -290,7 +276,7 @@ export function DeployProgress({
                   <>
                     <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-amber-400 border-t-transparent" />
                     <span className="text-amber-300">
-                      Propagating Global DNS (~{Math.max(0, 45 - dnsSeconds)}s remaining)…
+                      Propagating Global DNS (~{Math.max(0, 120 - dnsSeconds)}s remaining)…
                     </span>
                   </>
                 )}
@@ -358,11 +344,11 @@ export function DeployProgress({
               <div className="w-full bg-zinc-900 rounded-full h-1.5 overflow-hidden">
                 <div
                   className="bg-gradient-to-r from-amber-500 to-emerald-400 h-full transition-all duration-1000 ease-out"
-                  style={{ width: `${Math.min(100, Math.max(10, (dnsSeconds / 45) * 100))}%` }}
+                  style={{ width: `${Math.min(95, Math.max(5, (dnsSeconds / 120) * 100))}%` }}
                 />
               </div>
               <p className="text-[11px] text-zinc-400 leading-relaxed">
-                Brand-new CloudFront distributions take ~30–60s for global DNS resolvers to propagate. This card probes resolution continuously and turns green automatically the second the edge answers.
+                Brand-new CloudFront distributions take ~60–120s for global edge DNS resolvers to fully propagate worldwide. This card probes resolution continuously and turns green automatically the second the edge answers.
               </p>
             </div>
           )}
@@ -413,7 +399,7 @@ export function DeployProgress({
           <p className="text-[11px] text-zinc-400 border-t border-emerald-900/40 pt-2 flex items-center gap-1.5">
             <span>⚡</span>
             <span>
-              <strong>Edge CDN Status:</strong> {isDnsReady ? "Global DNS active and verified." : "Resolving edge DNS routes in the background..."}
+              <strong>Edge CDN Status:</strong> {isDnsReady ? "Global DNS active and verified." : "Resolving edge DNS and propagating to global edge locations (~120s)..."}
             </span>
           </p>
         </div>

@@ -350,6 +350,16 @@ export default function Home() {
             GitHub
           </a>
         </div>
+
+        {/* MVP Scope Disclaimer Badge */}
+        <div className="pt-2 flex items-center justify-center">
+          <div className="inline-flex items-center gap-2 rounded-xl border border-amber-500/25 bg-amber-500/10 px-3.5 py-1.5 text-xs text-amber-300/90 backdrop-blur-sm">
+            <span className="text-amber-400">⚡</span>
+            <span>
+              <strong>MVP Scope:</strong> Currently optimized for static sites &amp; Single Page Apps (Vite, React, Vue, Svelte, static HTML5 canvas).
+            </span>
+          </div>
+        </div>
       </section>
 
       {/* Metrics Banner */}

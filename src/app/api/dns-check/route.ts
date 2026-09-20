@@ -47,7 +47,7 @@ export async function GET(request: NextRequest) {
 
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 3500);
+      const timeoutId = setTimeout(() => controller.abort(), 4000);
       const res = await fetch(targetUrl, {
         method: "HEAD",
         signal: controller.signal,
@@ -55,20 +55,32 @@ export async function GET(request: NextRequest) {
       });
       clearTimeout(timeoutId);
 
+      // CloudFront returns an HTTP status code once edge distribution is active
+      if (res.status > 0) {
+        return NextResponse.json({
+          ready: true,
+          hostname,
+          ip: lookupResult.address,
+          httpStatus: res.status,
+          message: "CloudFront edge DNS and HTTP listener are live and responding",
+        });
+      }
+
       return NextResponse.json({
-        ready: true,
+        ready: false,
         hostname,
         ip: lookupResult.address,
-        httpStatus: res.status,
-        message: "CloudFront edge DNS and HTTP are live and reachable",
+        status: "no_response",
+        message: "Edge distribution not yet answering",
       });
     } catch {
-      // If HTTP timed out or failed but DNS resolved, mark as ready or resolving
+      // If HTTP timed out or threw network error during propagation, edge is not ready yet
       return NextResponse.json({
-        ready: true,
+        ready: false,
         hostname,
         ip: lookupResult.address,
-        message: "DNS resolved successfully",
+        status: "edge_propagating",
+        message: "DNS resolved but CloudFront edge is still propagating worldwide",
       });
     }
   } catch (err: unknown) {
