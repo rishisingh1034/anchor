@@ -23,6 +23,7 @@ export function getStepState(
   stepId: string,
   currentStatus: string,
   failedStage: string,
+  isDnsReady: boolean = true,
 ): "done" | "active" | "failed" | "pending" {
   if (currentStatus === "failed") {
     if (failedStage === stepId) return "failed";
@@ -32,7 +33,12 @@ export function getStepState(
     return "pending";
   }
 
-  if (currentStatus === "deployed") return "done";
+  if (currentStatus === "deployed") {
+    if (stepId === "deployed") {
+      return isDnsReady ? "done" : "active";
+    }
+    return "done";
+  }
 
   const currentIndex = DEPLOY_STEPS.findIndex((s) => s.id === currentStatus);
   const stepIndex = DEPLOY_STEPS.findIndex((s) => s.id === stepId);
@@ -78,37 +84,49 @@ export function DeployProgress({
     let isMounted = true;
     let timer: NodeJS.Timeout | null = null;
     let probeTimer: NodeJS.Timeout | null = null;
-    let currentDnsReady = false;
 
     setIsDnsReady(false);
     setDnsSeconds(0);
 
     const checkDns = async () => {
+      // 1. Try server-side DNS resolution endpoint
+      try {
+        const res = await fetch(`/api/dns-check?url=${encodeURIComponent(liveUrl)}`, {
+          cache: "no-store",
+        });
+        if (res.ok) {
+          const data = (await res.json()) as { ready?: boolean };
+          if (data.ready && isMounted) {
+            setIsDnsReady(true);
+            if (probeTimer) clearInterval(probeTimer);
+            return;
+          }
+        }
+      } catch {
+        // Fallback to client probe
+      }
+
+      // 2. Try direct client fetch (resolves when DNS is ready and TCP/TLS handshake succeeds)
       try {
         await fetch(`${liveUrl}?_probe=${Date.now()}`, {
           mode: "no-cors",
           cache: "no-store",
         });
         if (isMounted) {
-          currentDnsReady = true;
           setIsDnsReady(true);
+          if (probeTimer) clearInterval(probeTimer);
         }
       } catch {
-        // DNS still propagating
+        // DNS still propagating (NXDOMAIN)
       }
     };
 
+    // Initial check and periodic polling every 2.5s
     checkDns();
     probeTimer = setInterval(checkDns, 2500);
 
     timer = setInterval(() => {
-      setDnsSeconds((prev) => {
-        if (prev >= 50 && !currentDnsReady) {
-          currentDnsReady = true;
-          setIsDnsReady(true);
-        }
-        return prev + 1;
-      });
+      setDnsSeconds((prev) => prev + 1);
     }, 1000);
 
     return () => {
@@ -124,10 +142,10 @@ export function DeployProgress({
     <div className="rounded-xl border border-zinc-800 bg-zinc-950/90 p-6 space-y-5 shadow-2xl backdrop-blur-md">
       <div className="flex items-center justify-between border-b border-zinc-800/80 pb-4">
         <div className="flex items-center gap-2.5">
-          {isDeploying ? (
+          {isDeploying || (currentDeployStage === "deployed" && !isDnsReady) ? (
             <span className="relative flex h-3 w-3">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75" />
-              <span className="relative inline-flex rounded-full h-3 w-3 bg-indigo-500" />
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-3 w-3 bg-amber-500" />
             </span>
           ) : currentDeployStage === "deployed" ? (
             <span className="h-3 w-3 rounded-full bg-emerald-400" />
@@ -137,8 +155,10 @@ export function DeployProgress({
           <h3 className="text-sm font-semibold text-white tracking-tight">
             {isDeploying
               ? "Real-time Deployment Pipeline"
+              : currentDeployStage === "deployed" && !isDnsReady
+              ? "Warming CloudFront Edge DNS…"
               : currentDeployStage === "deployed"
-              ? "Deployment Successful"
+              ? "Deployment Verified & Live"
               : "Deployment Halted"}
           </h3>
         </div>
@@ -146,7 +166,7 @@ export function DeployProgress({
           <span className="text-xs font-mono text-zinc-400 bg-zinc-900 border border-zinc-800 px-2.5 py-0.5 rounded-md">
             {repository}
           </span>
-          {onDismiss && !isDeploying && (
+          {onDismiss && !isDeploying && isDnsReady && (
             <button
               onClick={onDismiss}
               className="text-xs text-zinc-500 hover:text-zinc-300 transition"
@@ -160,13 +180,15 @@ export function DeployProgress({
 
       <div className="space-y-3">
         {DEPLOY_STEPS.map((step, idx) => {
-          const state = getStepState(step.id, currentDeployStage, failedStage);
+          const state = getStepState(step.id, currentDeployStage, failedStage, isDnsReady);
           return (
             <div
               key={step.id}
               className={`flex items-start gap-3.5 rounded-lg p-2.5 transition-all ${
                 state === "active"
-                  ? "bg-indigo-500/10 border border-indigo-500/30"
+                  ? step.id === "deployed"
+                    ? "bg-amber-500/10 border border-amber-500/30"
+                    : "bg-indigo-500/10 border border-indigo-500/30"
                   : state === "failed"
                   ? "bg-red-500/10 border border-red-500/30"
                   : state === "done"
@@ -181,7 +203,11 @@ export function DeployProgress({
                   </div>
                 )}
                 {state === "active" && (
-                  <div className="h-5 w-5 rounded-full border-2 border-indigo-400 border-t-transparent animate-spin" />
+                  <div
+                    className={`h-5 w-5 rounded-full border-2 border-t-transparent animate-spin ${
+                      step.id === "deployed" ? "border-amber-400" : "border-indigo-400"
+                    }`}
+                  />
                 )}
                 {state === "failed" && (
                   <div className="h-5 w-5 rounded-full bg-red-500/20 text-red-400 border border-red-500/40 flex items-center justify-center text-xs font-bold">
@@ -200,7 +226,9 @@ export function DeployProgress({
                   <p
                     className={`text-xs font-medium ${
                       state === "active"
-                        ? "text-indigo-200 font-semibold"
+                        ? step.id === "deployed"
+                          ? "text-amber-200 font-semibold"
+                          : "text-indigo-200 font-semibold"
                         : state === "failed"
                         ? "text-red-300 font-semibold"
                         : state === "done"
@@ -211,8 +239,12 @@ export function DeployProgress({
                     {step.label}
                   </p>
                   {state === "active" && (
-                    <span className="text-[10px] text-indigo-400 font-mono animate-pulse">
-                      In Progress…
+                    <span
+                      className={`text-[10px] font-mono animate-pulse ${
+                        step.id === "deployed" ? "text-amber-400" : "text-indigo-400"
+                      }`}
+                    >
+                      {step.id === "deployed" ? "Warming DNS…" : "In Progress…"}
                     </span>
                   )}
                   {state === "done" && (
@@ -222,7 +254,9 @@ export function DeployProgress({
                   )}
                 </div>
                 <p className="text-[11px] text-zinc-500 mt-0.5">
-                  {step.description}
+                  {step.id === "deployed" && !isDnsReady && currentDeployStage === "deployed"
+                    ? "Propagating DNS across CloudFront edge locations before opening site"
+                    : step.description}
                 </p>
                 {state === "failed" && deploymentError && (
                   <p className="text-xs text-red-400 mt-2 font-mono bg-red-950/60 p-2 rounded border border-red-900/60">
@@ -235,7 +269,7 @@ export function DeployProgress({
         })}
       </div>
 
-      {/* Success Result Box with DNS Resolution Health-Check */}
+      {/* Success / Warming Result Box with DNS Resolution Health-Check */}
       {liveUrl && (
         <div
           className={`rounded-xl border p-5 mt-4 space-y-4 transition-all duration-300 ${
@@ -262,14 +296,9 @@ export function DeployProgress({
                 )}
               </div>
               <div className="flex flex-wrap items-center gap-3">
-                <a
-                  href={liveUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-sm font-mono text-white underline hover:text-emerald-300 transition break-all"
-                >
+                <span className="text-sm font-mono text-white break-all">
                   {liveUrl}
-                </a>
+                </span>
                 {!isDnsReady && (
                   <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-950/80 border border-amber-700/60 px-2.5 py-0.5 text-xs font-medium text-amber-300 font-mono animate-pulse">
                     <span>Probing edge resolvers ({dnsSeconds}s)</span>
@@ -283,20 +312,37 @@ export function DeployProgress({
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
-              <a
-                href={liveUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className={`inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-xs font-semibold transition shadow-md ${
-                  isDnsReady
-                    ? "bg-emerald-500 text-zinc-950 hover:bg-emerald-400 active:scale-[0.98]"
-                    : "bg-amber-500 text-zinc-950 hover:bg-amber-400 active:scale-[0.98]"
-                }`}
-              >
-                <span>{isDnsReady ? "Visit Live Site" : "Open URL (Warming DNS)"}</span>
-                <span>&rarr;</span>
-              </a>
+            <div className="flex flex-col items-end gap-1.5">
+              {isDnsReady ? (
+                <a
+                  href={liveUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-xs font-semibold bg-emerald-500 text-zinc-950 hover:bg-emerald-400 active:scale-[0.98] shadow-md transition"
+                >
+                  <span>Visit Live Site</span>
+                  <span>&rarr;</span>
+                </a>
+              ) : (
+                <div className="flex flex-col items-end gap-1">
+                  <button
+                    disabled
+                    className="inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-xs font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/40 cursor-wait shadow-sm"
+                  >
+                    <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-amber-400 border-t-transparent" />
+                    <span>Warming Edge DNS ({dnsSeconds}s)…</span>
+                  </button>
+                  <a
+                    href={liveUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[11px] text-zinc-400 hover:text-zinc-200 underline font-mono"
+                    title="Bypass probe check and open URL directly"
+                  >
+                    Open anyway &rarr;
+                  </a>
+                </div>
+              )}
             </div>
           </div>
 
