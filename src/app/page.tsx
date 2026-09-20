@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import { formatBytes } from "@/lib/cost/estimate";
+import { useEffect, useRef, useState } from "react";
+import { formatBytes, estimateMonthlyCost, type CostEstimate } from "@/lib/cost/estimate";
+import { DeployProgress } from "@/components/DeployProgress";
 
 interface PublicDeployment {
   owner: string;
@@ -13,6 +14,33 @@ interface PublicDeployment {
   totalSizeBytes?: number;
   estimatedMonthlyCostUsd?: number;
 }
+
+const DEMO_CARDS = [
+  {
+    repo: "sveltejs/template",
+    title: "Svelte 4 App",
+    description: "Rollup bundle with HTML/JS/CSS assets",
+    tag: "Svelte + Rollup",
+    badgeColor: "border-orange-500/30 bg-orange-500/10 text-orange-300",
+    buttonLabel: "Deploy Svelte Demo",
+  },
+  {
+    repo: "SafdarJamal/vite-template-react",
+    title: "Vite + React SPA",
+    description: "Modern Single Page App with fast build pipeline",
+    tag: "Vite + React",
+    badgeColor: "border-cyan-500/30 bg-cyan-500/10 text-cyan-300",
+    buttonLabel: "Deploy React Demo",
+  },
+  {
+    repo: "asprooo/mon-portfolio",
+    title: "Developer Portfolio",
+    description: "Clean responsive static HTML5 showcase",
+    tag: "Static HTML",
+    badgeColor: "border-emerald-500/30 bg-emerald-500/10 text-emerald-300",
+    buttonLabel: "Deploy Portfolio Demo",
+  },
+];
 
 function getStackBadge(repo: string) {
   const lower = repo.toLowerCase();
@@ -46,24 +74,145 @@ export default function Home() {
   const [deployments, setDeployments] = useState<PublicDeployment[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
+  // Anonymous demo deployment state
+  const [activeDemoRepo, setActiveDemoRepo] = useState<string>("");
+  const [isDemoDeploying, setIsDemoDeploying] = useState<boolean>(false);
+  const [demoStage, setDemoStage] = useState<string>("");
+  const [demoFailedStage, setDemoFailedStage] = useState<string>("");
+  const [demoError, setDemoError] = useState<string>("");
+  const [demoLiveUrl, setDemoLiveUrl] = useState<string>("");
+  const [demoCostEstimate, setDemoCostEstimate] = useState<CostEstimate | null>(null);
+
+  const demoPollIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  async function loadPublicDeployments() {
+    try {
+      const res = await fetch("/api/deployments/public");
+      if (res.ok) {
+        const data = (await res.json()) as { deployments?: PublicDeployment[] };
+        if (Array.isArray(data.deployments)) {
+          setDeployments(data.deployments);
+        }
+      }
+    } catch {
+      // Fallback gracefully
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
   useEffect(() => {
-    async function loadPublicDeployments() {
+    loadPublicDeployments();
+    return () => {
+      if (demoPollIntervalRef.current) clearInterval(demoPollIntervalRef.current);
+    };
+  }, []);
+
+  async function handleTriggerDemo(repo: string) {
+    if (isDemoDeploying) return;
+    const startedAt = new Date().toISOString();
+    setActiveDemoRepo(repo);
+    setIsDemoDeploying(true);
+    setDemoStage("analyzing");
+    setDemoFailedStage("");
+    setDemoError("");
+    setDemoLiveUrl("");
+    setDemoCostEstimate(null);
+
+    if (demoPollIntervalRef.current) clearInterval(demoPollIntervalRef.current);
+
+    const startTime = Date.now();
+    const pollOwnerKey = `demo#${repo}`;
+
+    demoPollIntervalRef.current = setInterval(async () => {
       try {
-        const res = await fetch("/api/deployments/public");
+        const res = await fetch(
+          `/api/deploy/status?owner=${encodeURIComponent(pollOwnerKey)}&timestamp=${encodeURIComponent(startedAt)}`,
+          { cache: "no-store" },
+        );
         if (res.ok) {
-          const data = (await res.json()) as { deployments?: PublicDeployment[] };
-          if (Array.isArray(data.deployments)) {
-            setDeployments(data.deployments);
+          const data = (await res.json()) as {
+            status?: string;
+            liveUrl?: string;
+            errorMessage?: string;
+            failedStage?: string;
+            totalSizeBytes?: number;
+            estimatedMonthlyCostUsd?: number;
+            costBreakdown?: CostEstimate;
+          };
+
+          if (data.status && data.status !== "pending") {
+            setDemoStage(data.status);
+            if (data.status === "deployed") {
+              if (data.liveUrl) setDemoLiveUrl(data.liveUrl);
+              if (data.costBreakdown) {
+                setDemoCostEstimate(data.costBreakdown);
+              } else if (typeof data.totalSizeBytes === "number") {
+                setDemoCostEstimate(estimateMonthlyCost(data.totalSizeBytes));
+              }
+              if (demoPollIntervalRef.current) clearInterval(demoPollIntervalRef.current);
+              setIsDemoDeploying(false);
+              loadPublicDeployments();
+            } else if (data.status === "failed") {
+              if (data.failedStage) setDemoFailedStage(data.failedStage);
+              if (data.errorMessage) setDemoError(data.errorMessage);
+              if (demoPollIntervalRef.current) clearInterval(demoPollIntervalRef.current);
+              setIsDemoDeploying(false);
+            }
           }
         }
       } catch {
-        // Fallback gracefully
-      } finally {
-        setIsLoading(false);
+        // Non-blocking poll
       }
+
+      if (Date.now() - startTime > 120_000) {
+        if (demoPollIntervalRef.current) clearInterval(demoPollIntervalRef.current);
+        setIsDemoDeploying(false);
+        setDemoError("Demo deployment timed out. Please try again.");
+      }
+    }, 1000);
+
+    try {
+      const response = await fetch("/api/demo/deploy", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ repo, startedAt }),
+      });
+
+      const data: unknown = await response.json();
+      if (!response.ok || !data || typeof data !== "object" || !("liveUrl" in data) || typeof data.liveUrl !== "string") {
+        const msg =
+          data && typeof data === "object" && "error" in data && typeof data.error === "string"
+            ? data.error
+            : "Demo deployment failed.";
+        const stage =
+          data && typeof data === "object" && "stage" in data && typeof data.stage === "string"
+            ? data.stage
+            : "deploy";
+
+        setDemoError(msg);
+        setDemoFailedStage(stage);
+        setDemoStage("failed");
+        if (demoPollIntervalRef.current) clearInterval(demoPollIntervalRef.current);
+        return;
+      }
+
+      setDemoLiveUrl(data.liveUrl);
+      if ("costBreakdown" in data && data.costBreakdown) {
+        setDemoCostEstimate(data.costBreakdown as CostEstimate);
+      } else if ("totalSizeBytes" in data && typeof data.totalSizeBytes === "number") {
+        setDemoCostEstimate(estimateMonthlyCost(data.totalSizeBytes));
+      }
+      setDemoStage("deployed");
+      loadPublicDeployments();
+    } catch {
+      setDemoError("Could not reach the demo deploy endpoint.");
+      setDemoStage("failed");
+    } finally {
+      if (demoPollIntervalRef.current) clearInterval(demoPollIntervalRef.current);
+      setIsDemoDeploying(false);
     }
-    loadPublicDeployments();
-  }, []);
+  }
 
   return (
     <div className="min-h-screen bg-zinc-950 text-white selection:bg-indigo-500 selection:text-white">
@@ -110,12 +259,18 @@ export default function Home() {
         </p>
 
         <div className="pt-2 flex flex-wrap items-center justify-center gap-4">
-          <Link
-            href="/dashboard"
+          <a
+            href="#try-live"
             className="inline-flex items-center gap-2 rounded-xl bg-white px-6 py-3 text-sm font-semibold text-zinc-950 shadow-lg shadow-white/10 transition hover:bg-zinc-200 hover:scale-[1.02] active:scale-[0.98]"
           >
-            Start Deploying
-            <span>&rarr;</span>
+            <span>Try Live Demo</span>
+            <span>&darr;</span>
+          </a>
+          <Link
+            href="/dashboard"
+            className="inline-flex items-center gap-2 rounded-xl border border-zinc-800 bg-zinc-900/60 px-5 py-3 text-sm font-medium text-zinc-300 transition hover:bg-zinc-800 hover:text-white"
+          >
+            Open Dashboard &rarr;
           </Link>
           <a
             href="https://github.com/rishisingh1034/anchor"
@@ -128,6 +283,125 @@ export default function Home() {
             </svg>
             GitHub
           </a>
+        </div>
+      </section>
+
+      {/* Try It Live — No Sign-In Required Section */}
+      <section id="try-live" className="max-w-6xl mx-auto px-6 py-8 scroll-mt-20">
+        <div className="rounded-3xl border border-indigo-500/20 bg-gradient-to-b from-indigo-950/20 via-zinc-900/40 to-zinc-900/20 p-6 sm:p-10 backdrop-blur-md shadow-2xl relative overflow-hidden">
+          {/* Subtle glow */}
+          <div className="absolute top-0 right-1/4 -z-10 h-48 w-72 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
+
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-8 border-b border-zinc-800/60">
+            <div>
+              <div className="inline-flex items-center gap-2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-0.5 text-xs font-semibold text-emerald-400 mb-2">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-ping" />
+                Try It Live — No Sign-In Required
+              </div>
+              <h2 className="text-2xl sm:text-3xl font-bold text-white tracking-tight">
+                Experience the AWS Deploy Engine
+              </h2>
+              <p className="text-sm text-zinc-400 mt-1 max-w-xl">
+                Click any allow-listed demo repository below. Anchor will inspect manifests, invoke Amazon Bedrock to determine architecture, execute the build, and provision S3 + CloudFront live.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-zinc-400 bg-zinc-900/80 border border-zinc-800 px-3 py-1.5 rounded-xl font-mono flex items-center gap-1.5">
+                <span className="h-2 w-2 rounded-full bg-indigo-400" />
+                Live CloudFront CDN Output
+              </span>
+            </div>
+          </div>
+
+          {/* 3 Interactive Demo Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5 pt-8">
+            {DEMO_CARDS.map((card) => {
+              const isThisDeploying = isDemoDeploying && activeDemoRepo === card.repo;
+              const isThisActive = activeDemoRepo === card.repo;
+
+              return (
+                <div
+                  key={card.repo}
+                  className={`flex flex-col justify-between rounded-2xl border p-6 transition-all ${
+                    isThisActive
+                      ? "border-indigo-500/60 bg-indigo-950/30 shadow-lg shadow-indigo-500/10"
+                      : "border-zinc-800 bg-zinc-950/60 hover:border-zinc-700 hover:bg-zinc-900/40"
+                  }`}
+                >
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className={`text-[10px] font-semibold uppercase tracking-wider px-2.5 py-0.5 rounded-full border ${card.badgeColor}`}>
+                        {card.tag}
+                      </span>
+                      <span className="text-[11px] font-mono text-zinc-500">
+                        {card.repo.split("/")[0]}
+                      </span>
+                    </div>
+
+                    <div>
+                      <h3 className="text-lg font-bold text-white tracking-tight">
+                        {card.title}
+                      </h3>
+                      <p className="text-xs text-zinc-400 mt-1 leading-relaxed">
+                        {card.description}
+                      </p>
+                    </div>
+
+                    <div className="pt-1 text-[11px] font-mono text-zinc-500 truncate">
+                      github.com/{card.repo}
+                    </div>
+                  </div>
+
+                  <div className="pt-6 mt-4 border-t border-zinc-900/80">
+                    <button
+                      type="button"
+                      disabled={isDemoDeploying}
+                      onClick={() => handleTriggerDemo(card.repo)}
+                      className={`w-full inline-flex items-center justify-center gap-2 rounded-xl py-2.5 px-4 text-xs font-semibold transition ${
+                        isThisDeploying
+                          ? "bg-indigo-600 text-white cursor-wait"
+                          : isDemoDeploying
+                          ? "bg-zinc-800/50 text-zinc-500 cursor-not-allowed"
+                          : "bg-white text-zinc-950 hover:bg-zinc-200 active:scale-[0.98] shadow-md shadow-white/5"
+                      }`}
+                    >
+                      {isThisDeploying ? (
+                        <>
+                          <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                          <span>Deploying…</span>
+                        </>
+                      ) : (
+                        <>
+                          <span>{card.buttonLabel}</span>
+                          <span>&rarr;</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Real-time Progress Checklist Component for Demo */}
+          {Boolean(demoStage) && (
+            <div className="mt-8 pt-8 border-t border-zinc-800/80">
+              <DeployProgress
+                currentDeployStage={demoStage}
+                isDeploying={isDemoDeploying}
+                failedStage={demoFailedStage}
+                deploymentError={demoError}
+                liveUrl={demoLiveUrl}
+                repository={activeDemoRepo}
+                costEstimate={demoCostEstimate}
+                onDismiss={() => {
+                  setDemoStage("");
+                  setActiveDemoRepo("");
+                }}
+              />
+            </div>
+          )}
         </div>
       </section>
 
