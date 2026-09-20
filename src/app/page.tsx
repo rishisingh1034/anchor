@@ -5,6 +5,11 @@ import { useEffect, useRef, useState } from "react";
 import { formatBytes, estimateMonthlyCost, type CostEstimate } from "@/lib/cost/estimate";
 import { DeployProgress } from "@/components/DeployProgress";
 import { FluidOrb } from "@/components/ui/fluid-orb";
+import { MetricsBanner } from "@/components/MetricsBanner";
+import { InteractiveTerminal } from "@/components/InteractiveTerminal";
+import { ArchitectureFlow } from "@/components/ArchitectureFlow";
+import { ComparisonSection } from "@/components/ComparisonSection";
+import { FaqSection } from "@/components/FaqSection";
 
 interface PublicDeployment {
   owner: string;
@@ -250,28 +255,49 @@ export default function Home() {
       </div>
 
       {/* Navigation Header */}
-      <header className="border-b border-zinc-900/80 bg-zinc-950/60 backdrop-blur-md sticky top-0 z-50">
+      <header className="border-b border-zinc-900/80 bg-zinc-950/70 backdrop-blur-md sticky top-0 z-50">
         <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="h-7 w-7 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center font-bold text-white shadow-md shadow-indigo-500/20 text-sm">
+          <div className="flex items-center gap-3">
+            <div className="h-8 w-8 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center font-bold text-white shadow-lg shadow-indigo-500/20 text-sm">
               ⚓
             </div>
-            <span className="font-bold text-lg tracking-tight bg-gradient-to-r from-white via-zinc-200 to-zinc-400 bg-clip-text text-transparent">
+            <span className="font-extrabold text-lg tracking-tight bg-gradient-to-r from-white via-zinc-200 to-zinc-400 bg-clip-text text-transparent">
               Anchor
             </span>
+            <div className="hidden sm:flex items-center gap-1.5 ml-2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-[11px] font-medium text-emerald-400">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              <span>AWS us-east-1 Operational</span>
+            </div>
           </div>
 
-          <Link
-            href="/dashboard"
-            className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/80 px-4 py-1.5 text-xs font-medium text-zinc-200 transition hover:bg-zinc-800 hover:text-white hover:border-zinc-700"
-          >
-            Dashboard &rarr;
-          </Link>
+          <div className="flex items-center gap-4 text-xs font-medium">
+            <nav className="hidden md:flex items-center gap-5 text-zinc-400">
+              <a href="#try-live" className="hover:text-white transition">
+                Try Live Demo
+              </a>
+              <a href="#architecture" className="hover:text-white transition">
+                Architecture
+              </a>
+              <a href="#deployments" className="hover:text-white transition">
+                Live Proofs
+              </a>
+              <a href="#faq" className="hover:text-white transition">
+                FAQ
+              </a>
+            </nav>
+
+            <Link
+              href="/dashboard"
+              className="inline-flex items-center gap-1.5 rounded-xl border border-zinc-700/80 bg-zinc-900/90 px-4 py-2 text-xs font-semibold text-zinc-100 transition hover:bg-zinc-800 hover:text-white hover:border-zinc-600 shadow-sm"
+            >
+              Dashboard &rarr;
+            </Link>
+          </div>
         </div>
       </header>
 
       {/* Hero Section */}
-      <section className="pt-16 pb-16 px-6 text-center max-w-4xl mx-auto space-y-6 relative">
+      <section className="pt-16 pb-12 px-6 text-center max-w-4xl mx-auto space-y-6 relative">
         {/* Luminous Fluid Orb Visual Accent */}
         <div className="flex justify-center -mb-2">
           <div className="relative group">
@@ -325,6 +351,9 @@ export default function Home() {
           </a>
         </div>
       </section>
+
+      {/* Metrics Banner */}
+      <MetricsBanner />
 
       {/* Try It Live — No Sign-In Required Section */}
       <section id="try-live" className="max-w-6xl mx-auto px-6 py-8 scroll-mt-20">
@@ -445,8 +474,11 @@ export default function Home() {
         </div>
       </section>
 
+      {/* Interactive Terminal / Developer CLI Component */}
+      <InteractiveTerminal />
+
       {/* Proof of Work / Live Deployments Section */}
-      <section className="max-w-6xl mx-auto px-6 py-12">
+      <section id="deployments" className="max-w-6xl mx-auto px-6 py-12 scroll-mt-20">
         <div className="rounded-2xl border border-zinc-800/80 bg-zinc-900/40 p-6 sm:p-8 backdrop-blur-sm">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-zinc-800/60">
             <div>
@@ -541,36 +573,44 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Architecture Highlights */}
-      <section className="max-w-6xl mx-auto px-6 py-12 grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/30 p-6 space-y-2">
-          <div className="text-indigo-400 font-mono text-sm font-semibold">01. Bedrock Analysis</div>
-          <h4 className="text-white font-semibold">AI Stack Detection</h4>
-          <p className="text-xs text-zinc-400 leading-relaxed">
-            Amazon Bedrock inspects package manifests and build scripts to choose the optimal build pipeline and output directory.
-          </p>
-        </div>
+      {/* Interactive Production Architecture Flow */}
+      <div id="architecture" className="scroll-mt-20">
+        <ArchitectureFlow />
+      </div>
 
-        <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/30 p-6 space-y-2">
-          <div className="text-indigo-400 font-mono text-sm font-semibold">02. Automated Provisioning</div>
-          <h4 className="text-white font-semibold">S3 + CloudFront OAC</h4>
-          <p className="text-xs text-zinc-400 leading-relaxed">
-            Creates dedicated private S3 buckets and attaches CloudFront distributions with Origin Access Controls and HTTPS certificates.
-          </p>
-        </div>
+      {/* Comparison Matrix: Traditional AWS vs Anchor */}
+      <ComparisonSection />
 
-        <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/30 p-6 space-y-2">
-          <div className="text-indigo-400 font-mono text-sm font-semibold">03. Serverless Compute</div>
-          <h4 className="text-white font-semibold">AWS Amplify SSR</h4>
-          <p className="text-xs text-zinc-400 leading-relaxed">
-            Anchor is self-hosted on AWS Amplify Hosting using Next.js 15 Web Compute with native IAM execution roles.
-          </p>
-        </div>
-      </section>
+      {/* FAQ Knowledge Base Accordion */}
+      <div id="faq" className="scroll-mt-20">
+        <FaqSection />
+      </div>
 
-      {/* Footer */}
-      <footer className="border-t border-zinc-900 py-8 text-center text-xs text-zinc-600">
-        <p>Anchor — Built for the AWS Hackathon • Self-hosted on AWS Amplify</p>
+      {/* Elevated Production Footer */}
+      <footer className="border-t border-zinc-900 bg-zinc-950/80 py-12 text-xs text-zinc-500">
+        <div className="max-w-6xl mx-auto px-6 flex flex-col sm:flex-row items-center justify-between gap-6">
+          <div className="flex items-center gap-3">
+            <div className="h-6 w-6 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center font-bold text-white text-xs">
+              ⚓
+            </div>
+            <span className="font-bold text-sm text-white">Anchor</span>
+            <span className="text-zinc-600">•</span>
+            <span>Self-hosted AWS Serverless PaaS</span>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-6 text-zinc-400">
+            <a href="#try-live" className="hover:text-white transition">Try Demo</a>
+            <a href="#architecture" className="hover:text-white transition">Architecture</a>
+            <a href="#deployments" className="hover:text-white transition">Live Sites</a>
+            <a href="#faq" className="hover:text-white transition">FAQ</a>
+            <a href="https://github.com/rishisingh1034/anchor" target="_blank" rel="noopener noreferrer" className="hover:text-white transition">GitHub Repo</a>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span className="h-2 w-2 rounded-full bg-emerald-400" />
+            <span className="text-zinc-400 font-mono text-[11px]">AWS Amplify SSR Engine</span>
+          </div>
+        </div>
       </footer>
     </div>
   );
