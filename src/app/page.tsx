@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { formatBytes, estimateMonthlyCost, type CostEstimate } from "@/lib/cost/estimate";
 import { DeployProgress } from "@/components/DeployProgress";
+import { FluidOrb } from "@/components/ui/fluid-orb";
 
 interface PublicDeployment {
   owner: string;
@@ -270,7 +271,19 @@ export default function Home() {
       </header>
 
       {/* Hero Section */}
-      <section className="pt-20 pb-16 px-6 text-center max-w-4xl mx-auto space-y-6">
+      <section className="pt-16 pb-16 px-6 text-center max-w-4xl mx-auto space-y-6 relative">
+        {/* Luminous Fluid Orb Visual Accent */}
+        <div className="flex justify-center -mb-2">
+          <div className="relative group">
+            <div className="absolute -inset-3 rounded-full bg-gradient-to-r from-indigo-500/30 to-purple-500/30 blur-2xl opacity-75 group-hover:opacity-100 transition duration-500" />
+            <FluidOrb
+              size={130}
+              color="#6366f1"
+              className="shadow-2xl shadow-indigo-500/30 ring-1 ring-indigo-400/30"
+            />
+          </div>
+        </div>
+
         <div className="inline-flex items-center gap-2 rounded-full border border-indigo-500/30 bg-indigo-500/10 px-3.5 py-1 text-xs font-medium text-indigo-300">
           <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
           Serverless Deployment Engine
