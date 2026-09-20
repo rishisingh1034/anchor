@@ -194,6 +194,25 @@ function DashboardContent() {
             </button>
           </form>
 
+          {/* Quick Demo Repos */}
+          <div className="flex flex-wrap items-center gap-2 pt-1 text-xs">
+            <span className="text-zinc-500 font-medium">Demo Allow-list:</span>
+            {[
+              "asprooo/mon-portfolio",
+              "SafdarJamal/vite-template-react",
+              "sveltejs/template",
+            ].map((demoRepo) => (
+              <button
+                key={demoRepo}
+                type="button"
+                onClick={() => setRepository(demoRepo)}
+                className="rounded-lg border border-zinc-800 bg-zinc-950 px-2.5 py-1 text-zinc-400 transition hover:border-zinc-700 hover:text-zinc-200"
+              >
+                {demoRepo}
+              </button>
+            ))}
+          </div>
+
           {canDeploy && (
             <div className="flex items-center gap-3 pt-2">
               <button

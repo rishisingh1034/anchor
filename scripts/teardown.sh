@@ -24,10 +24,13 @@ echo "3. Deleting DynamoDB Table ($TABLE_NAME)..."
 aws dynamodb delete-table --table-name "$TABLE_NAME" --region "$REGION" 2>/dev/null || echo "DynamoDB table already deleted."
 aws dynamodb delete-table --table-name "$TABLE_NAME" --region "ap-south-1" 2>/dev/null || true
 
-echo "4. Deleting IAM Role ($ROLE_NAME)..."
+echo "4. Deleting IAM Roles ($ROLE_NAME, anchor-amplify-compute-role)..."
 aws iam detach-role-policy --role-name "$ROLE_NAME" --policy-arn "arn:aws:iam::aws:policy/AdministratorAccess-Amplify" 2>/dev/null || true
 aws iam delete-role-policy --role-name "$ROLE_NAME" --policy-name "anchor-runtime-policy" 2>/dev/null || true
-aws iam delete-role --role-name "$ROLE_NAME" 2>/dev/null || echo "IAM role already deleted."
+aws iam delete-role --role-name "$ROLE_NAME" 2>/dev/null || echo "Service role already deleted."
+
+aws iam delete-role-policy --role-name "anchor-amplify-compute-role" --policy-name "anchor-runtime-policy" 2>/dev/null || true
+aws iam delete-role --role-name "anchor-amplify-compute-role" 2>/dev/null || echo "Compute role already deleted."
 
 echo "5. Deleting CloudWatch Log Group (/aws/amplify/$APP_ID)..."
 aws logs delete-log-group --log-group-name "/aws/amplify/$APP_ID" --region "$REGION" 2>/dev/null || true

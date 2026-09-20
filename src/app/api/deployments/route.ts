@@ -24,8 +24,9 @@ export async function GET(request: NextRequest) {
   const tableName = process.env.DEPLOYMENTS_TABLE || "deployments";
   try {
     const result = await dynamo.send(new ScanCommand({ TableName: tableName }));
-    const items = (result.Items ?? []) as DeploymentRecord[];
-    items.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    const items = ((result.Items ?? []) as DeploymentRecord[])
+      .filter((item) => item.status === "deployed" && !item.owner.startsWith("user#"))
+      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
     return Response.json({ deployments: items });
   } catch (error) {
     return Response.json(

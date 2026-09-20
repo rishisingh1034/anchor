@@ -21,7 +21,7 @@ export async function GET() {
 
     // Filter and sanitize: non-sensitive public fields only
     const deployments: PublicDeploymentRecord[] = rawItems
-      .filter((item) => item.status === "deployed" && typeof item.liveUrl === "string" && item.liveUrl.length > 0)
+      .filter((item) => item.status === "deployed" && typeof item.liveUrl === "string" && item.liveUrl.length > 0 && !String(item.owner).startsWith("user#"))
       .map((item) => ({
         owner: String(item.owner || "unknown"),
         repo: String(item.repo || "unknown"),

@@ -12,8 +12,11 @@ export const authOptions: NextAuthOptions = {
   ],
   session: { strategy: "jwt" },
   callbacks: {
-    async jwt({ token, account }) {
+    async jwt({ token, account, profile }) {
       if (account?.access_token) token.githubAccessToken = account.access_token;
+      if (profile && typeof profile === "object" && "login" in profile && typeof profile.login === "string") {
+        token.githubUser = profile.login;
+      }
       return token;
     },
   },
