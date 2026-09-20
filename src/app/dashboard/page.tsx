@@ -453,30 +453,39 @@ function DashboardContent() {
 
               {/* Success Result Box */}
               {liveUrl && (
-                <div className="rounded-xl border border-emerald-500/40 bg-emerald-950/30 p-4 mt-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2 text-xs font-semibold text-emerald-400">
-                      <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-                      Provisioned on CloudFront CDN
+                <div className="rounded-xl border border-emerald-500/40 bg-emerald-950/30 p-5 mt-4 space-y-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2 text-xs font-semibold text-emerald-400">
+                        <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+                        Provisioned on CloudFront Edge CDN
+                      </div>
+                      <a
+                        href={liveUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm font-mono text-white underline hover:text-emerald-300 transition break-all"
+                      >
+                        {liveUrl}
+                      </a>
                     </div>
                     <a
                       href={liveUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-sm font-mono text-white underline hover:text-emerald-300 transition break-all"
+                      className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-500 px-4 py-2 text-xs font-semibold text-zinc-950 hover:bg-emerald-400 transition"
                     >
-                      {liveUrl}
+                      <span>Visit Live Site</span>
+                      <span>&rarr;</span>
                     </a>
                   </div>
-                  <a
-                    href={liveUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-500 px-4 py-2 text-xs font-semibold text-zinc-950 hover:bg-emerald-400 transition"
-                  >
-                    <span>Visit Live Site</span>
-                    <span>&rarr;</span>
-                  </a>
+
+                  <p className="text-[11px] text-zinc-400 border-t border-emerald-900/40 pt-2 flex items-center gap-1.5">
+                    <span>⚡</span>
+                    <span>
+                      <strong>DNS Propagation:</strong> Newly provisioned CloudFront URLs take ~60–90s to propagate across global DNS resolvers. If your browser shows <code className="text-zinc-300">NXDOMAIN</code> initially, wait a minute and refresh.
+                    </span>
+                  </p>
                 </div>
               )}
 
