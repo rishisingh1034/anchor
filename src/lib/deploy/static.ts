@@ -112,6 +112,7 @@ export async function deployStaticSite(
   owner: string,
   repo: string,
   githubToken?: string,
+  onProgress?: (stage: "installing" | "building" | "uploading" | "provisioning_cloudfront") => Promise<void> | void,
 ): Promise<StaticDeployment> {
   if (classification.type !== "static-frontend") throw new StaticDeploymentError("build", "Only static frontend repositories can be deployed.");
 
@@ -136,6 +137,7 @@ export async function deployStaticSite(
       delete cleanEnv.NODE_OPTIONS;
 
       if (_manifest.hasPackageJson) {
+        await onProgress?.("installing");
         try {
           await execFileAsync("npm", ["install", "--include=dev", "--no-audit", "--no-fund", "--cache", npmCacheDir], {
             cwd: repositoryDirectory,
@@ -147,6 +149,7 @@ export async function deployStaticSite(
         }
       }
 
+      await onProgress?.("building");
       const { executable, args } = buildCommandArguments(buildCmd);
       try {
         await execFileAsync(executable, args, {
@@ -171,6 +174,7 @@ export async function deployStaticSite(
       throw new StaticDeploymentError("build", `Build output directory "${classification.buildOutputDir}" was not created.`);
     }
 
+    await onProgress?.("uploading");
     try {
       await s3.send(new CreateBucketCommand({ Bucket: bucketName, ...(region === "us-east-1" ? {} : { CreateBucketConfiguration: { LocationConstraint: region as BucketLocationConstraint } }) }));
       await s3.send(new PutPublicAccessBlockCommand({
@@ -183,6 +187,7 @@ export async function deployStaticSite(
       throw new StaticDeploymentError("upload", `Unable to create or configure the S3 deployment bucket: ${error instanceof Error ? error.message : "unknown error"}`);
     }
 
+    await onProgress?.("provisioning_cloudfront");
     try {
       const originAccessControl = await cloudfront.send(new CreateOriginAccessControlCommand({
         OriginAccessControlConfig: { Name: `anchor-${bucketName}`, Description: "Anchor static site origin access control", OriginAccessControlOriginType: "s3", SigningBehavior: "always", SigningProtocol: "sigv4" },

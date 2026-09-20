@@ -1,7 +1,7 @@
 "use client";
 
 import { SessionProvider, signIn, signOut, useSession } from "next-auth/react";
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 
 interface DeploymentItem {
   owner: string;
@@ -11,17 +11,65 @@ interface DeploymentItem {
   timestamp: string;
 }
 
+interface StepInfo {
+  id: string;
+  label: string;
+  description: string;
+}
+
+const DEPLOY_STEPS: StepInfo[] = [
+  { id: "analyzing", label: "Inspect Repository", description: "Fetching manifests and repository tree via GitHub API" },
+  { id: "classifying", label: "Analyze Architecture", description: "Detecting framework and build parameters with Amazon Bedrock" },
+  { id: "installing", label: "Install Dependencies", description: "Running npm install with cached devDependencies" },
+  { id: "building", label: "Build Static Assets", description: "Executing production build command" },
+  { id: "uploading", label: "Upload to S3", description: "Provisioning private S3 bucket and uploading build artifacts" },
+  { id: "provisioning_cloudfront", label: "Configure CloudFront CDN", description: "Attaching Origin Access Control and global edge distribution" },
+  { id: "deployed", label: "Live Deployment", description: "Static site deployed and reachable globally via HTTPS" },
+];
+
+function getStepState(
+  stepId: string,
+  currentStatus: string,
+  failedStage: string,
+): "done" | "active" | "failed" | "pending" {
+  if (currentStatus === "failed") {
+    if (failedStage === stepId) return "failed";
+    // If failed in a later step, prior steps were completed
+    const failedIndex = DEPLOY_STEPS.findIndex((s) => s.id === failedStage);
+    const stepIndex = DEPLOY_STEPS.findIndex((s) => s.id === stepId);
+    if (failedIndex !== -1 && stepIndex < failedIndex) return "done";
+    return "pending";
+  }
+
+  if (currentStatus === "deployed") return "done";
+
+  const currentIndex = DEPLOY_STEPS.findIndex((s) => s.id === currentStatus);
+  const stepIndex = DEPLOY_STEPS.findIndex((s) => s.id === stepId);
+
+  if (currentIndex === -1) return "pending";
+  if (stepIndex < currentIndex) return "done";
+  if (stepIndex === currentIndex) return "active";
+  return "pending";
+}
+
 function DashboardContent() {
   const { data: session, status } = useSession();
   const [repository, setRepository] = useState("");
   const [result, setResult] = useState<string>("");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [canDeploy, setCanDeploy] = useState(false);
+
+  // Real-time deployment pipeline state
   const [isDeploying, setIsDeploying] = useState(false);
-  const [liveUrl, setLiveUrl] = useState("");
+  const [currentDeployStage, setCurrentDeployStage] = useState<string>("");
+  const [failedStage, setFailedStage] = useState<string>("");
   const [deploymentError, setDeploymentError] = useState("");
+  const [liveUrl, setLiveUrl] = useState("");
+
   const [deployments, setDeployments] = useState<DeploymentItem[]>([]);
   const [isLoadingDeployments, setIsLoadingDeployments] = useState(false);
+
+  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   async function fetchDeployments() {
     setIsLoadingDeployments(true);
@@ -44,6 +92,9 @@ function DashboardContent() {
     if (session) {
       fetchDeployments();
     }
+    return () => {
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+    };
   }, [session]);
 
   async function handleAnalyze(event: FormEvent<HTMLFormElement>) {
@@ -58,6 +109,8 @@ function DashboardContent() {
     setCanDeploy(false);
     setLiveUrl("");
     setDeploymentError("");
+    setCurrentDeployStage("");
+    setFailedStage("");
     try {
       const response = await fetch("/api/analyze", {
         method: "POST",
@@ -76,27 +129,95 @@ function DashboardContent() {
 
   async function handleDeploy() {
     const [owner, repo] = repository.trim().split("/");
+    if (!owner || !repo) return;
+
+    const startedAt = new Date().toISOString();
     setIsDeploying(true);
+    setCurrentDeployStage("analyzing");
+    setFailedStage("");
     setDeploymentError("");
     setLiveUrl("");
+
+    // Clear any previous interval
+    if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+
+    const startTime = Date.now();
+
+    // Start real-time DynamoDB status polling every 1 second
+    pollIntervalRef.current = setInterval(async () => {
+      try {
+        const statusRes = await fetch(
+          `/api/deploy/status?owner=${encodeURIComponent(owner)}&timestamp=${encodeURIComponent(startedAt)}`,
+          { cache: "no-store" },
+        );
+        if (statusRes.ok) {
+          const statusData = (await statusRes.json()) as {
+            status?: string;
+            liveUrl?: string;
+            errorMessage?: string;
+            failedStage?: string;
+          };
+
+          if (statusData.status && statusData.status !== "pending") {
+            setCurrentDeployStage(statusData.status);
+
+            if (statusData.status === "deployed") {
+              if (statusData.liveUrl) setLiveUrl(statusData.liveUrl);
+              if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+              setIsDeploying(false);
+              fetchDeployments();
+            } else if (statusData.status === "failed") {
+              if (statusData.failedStage) setFailedStage(statusData.failedStage);
+              if (statusData.errorMessage) setDeploymentError(statusData.errorMessage);
+              if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+              setIsDeploying(false);
+            }
+          }
+        }
+      } catch {
+        // Non-blocking poll attempt
+      }
+
+      // Safety timeout: 2 minutes max
+      if (Date.now() - startTime > 120_000) {
+        if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+        setIsDeploying(false);
+        setDeploymentError("Deployment process timed out. Check deployment history below.");
+      }
+    }, 1000);
+
+    // Concurrently trigger server-side deploy pipeline
     try {
       const response = await fetch("/api/deploy", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ owner, repo }),
+        body: JSON.stringify({ owner, repo, startedAt }),
       });
+
       const data: unknown = await response.json();
       if (!response.ok || !data || typeof data !== "object" || !("liveUrl" in data) || typeof data.liveUrl !== "string") {
         const message = data && typeof data === "object" && "error" in data && typeof data.error === "string"
-          ? data.error : "Deployment failed.";
+          ? data.error
+          : "Deployment failed.";
+        const stage = data && typeof data === "object" && "stage" in data && typeof data.stage === "string"
+          ? data.stage
+          : "deploy";
+
         setDeploymentError(message);
+        setFailedStage(stage);
+        setCurrentDeployStage("failed");
+        if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
         return;
       }
+
       setLiveUrl(data.liveUrl);
+      setCurrentDeployStage("deployed");
       fetchDeployments();
     } catch {
       setDeploymentError("Could not reach the deploy endpoint.");
+      setCurrentDeployStage("failed");
     } finally {
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
       setIsDeploying(false);
     }
   }
@@ -137,7 +258,7 @@ function DashboardContent() {
   return (
     <main className="min-h-screen bg-zinc-950 text-white">
       {/* Top Navigation */}
-      <header className="border-b border-zinc-800/80 bg-zinc-900/50 backdrop-blur">
+      <header className="border-b border-zinc-800/80 bg-zinc-900/50 backdrop-blur sticky top-0 z-50">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
           <div className="flex items-center gap-3">
             <span className="text-xl font-bold tracking-tight bg-gradient-to-r from-white to-zinc-400 bg-clip-text text-transparent">
@@ -166,7 +287,7 @@ function DashboardContent() {
         <section className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-6 space-y-6">
           <div>
             <h2 className="text-lg font-semibold">Deploy a Repository</h2>
-            <p className="text-sm text-zinc-400">Enter a public or private GitHub repository to analyze and deploy.</p>
+            <p className="text-sm text-zinc-400">Enter a public GitHub repository to analyze with Bedrock and provision to AWS S3 & CloudFront.</p>
           </div>
 
           <form className="flex flex-col gap-3 sm:flex-row" onSubmit={handleAnalyze}>
@@ -188,7 +309,7 @@ function DashboardContent() {
             </div>
             <button
               className="inline-flex items-center justify-center rounded-xl bg-white px-5 py-2.5 text-sm font-semibold text-zinc-950 transition hover:bg-zinc-200 disabled:opacity-50"
-              disabled={isAnalyzing}
+              disabled={isAnalyzing || isDeploying}
             >
               {isAnalyzing ? "Analyzing…" : "Analyze"}
             </button>
@@ -206,132 +327,245 @@ function DashboardContent() {
                 key={demoRepo}
                 type="button"
                 onClick={() => setRepository(demoRepo)}
-                className="rounded-lg border border-zinc-800 bg-zinc-950 px-2.5 py-1 text-zinc-400 transition hover:border-zinc-700 hover:text-zinc-200"
+                disabled={isDeploying}
+                className="rounded-lg border border-zinc-800 bg-zinc-950 px-2.5 py-1 text-zinc-400 transition hover:border-zinc-700 hover:text-zinc-200 disabled:opacity-50"
               >
                 {demoRepo}
               </button>
             ))}
           </div>
 
-          {canDeploy && (
+          {canDeploy && !isDeploying && !currentDeployStage && (
             <div className="flex items-center gap-3 pt-2">
               <button
-                className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:opacity-50"
-                disabled={isDeploying}
+                className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-500"
                 onClick={handleDeploy}
               >
-                {isDeploying ? (
-                  <>
-                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-zinc-200 border-t-white" />
-                    Deploying to AWS (S3 + CloudFront)…
-                  </>
-                ) : (
-                  "Deploy to AWS"
-                )}
+                Deploy to AWS &rarr;
               </button>
             </div>
           )}
 
-          {deploymentError && (
-            <div className="rounded-xl border border-red-900/50 bg-red-950/40 p-4 text-sm text-red-300">
-              {deploymentError}
-            </div>
-          )}
-
-          {liveUrl && (
-            <div className="rounded-xl border border-emerald-900/50 bg-emerald-950/40 p-4 text-sm text-emerald-300 flex items-center justify-between">
-              <div>
-                <span className="font-semibold">Live deployment provisioned:</span>{" "}
-                <a className="underline font-mono" href={liveUrl} rel="noreferrer" target="_blank">
-                  {liveUrl}
-                </a>
+          {/* Real-time Step-by-Step Progress Pipeline */}
+          {Boolean(currentDeployStage) && (
+            <div className="rounded-xl border border-zinc-800 bg-zinc-950/80 p-6 space-y-5">
+              <div className="flex items-center justify-between border-b border-zinc-800/80 pb-4">
+                <div className="flex items-center gap-2.5">
+                  {isDeploying ? (
+                    <span className="relative flex h-3 w-3">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-3 w-3 bg-indigo-500"></span>
+                    </span>
+                  ) : currentDeployStage === "deployed" ? (
+                    <span className="h-3 w-3 rounded-full bg-emerald-400" />
+                  ) : (
+                    <span className="h-3 w-3 rounded-full bg-red-400" />
+                  )}
+                  <h3 className="text-sm font-semibold text-white tracking-tight">
+                    {isDeploying
+                      ? "Real-time Deployment Pipeline"
+                      : currentDeployStage === "deployed"
+                      ? "Deployment Successful"
+                      : "Deployment Halted"}
+                  </h3>
+                </div>
+                <span className="text-xs font-mono text-zinc-500">
+                  {repository}
+                </span>
               </div>
-              <a
-                href={liveUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="rounded-lg bg-emerald-500 px-3 py-1 text-xs font-semibold text-zinc-950 hover:bg-emerald-400"
-              >
-                Open &rarr;
-              </a>
+
+              <div className="space-y-3">
+                {DEPLOY_STEPS.map((step, idx) => {
+                  const state = getStepState(step.id, currentDeployStage, failedStage);
+                  return (
+                    <div
+                      key={step.id}
+                      className={`flex items-start gap-3.5 rounded-lg p-2.5 transition-all ${
+                        state === "active"
+                          ? "bg-indigo-500/10 border border-indigo-500/30"
+                          : state === "failed"
+                          ? "bg-red-500/10 border border-red-500/30"
+                          : state === "done"
+                          ? "bg-zinc-900/30 border border-zinc-900"
+                          : "opacity-40"
+                      }`}
+                    >
+                      <div className="flex-shrink-0 mt-0.5">
+                        {state === "done" && (
+                          <div className="h-5 w-5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 flex items-center justify-center text-xs font-bold">
+                            ✓
+                          </div>
+                        )}
+                        {state === "active" && (
+                          <div className="h-5 w-5 rounded-full border-2 border-indigo-400 border-t-transparent animate-spin" />
+                        )}
+                        {state === "failed" && (
+                          <div className="h-5 w-5 rounded-full bg-red-500/20 text-red-400 border border-red-500/40 flex items-center justify-center text-xs font-bold">
+                            ✕
+                          </div>
+                        )}
+                        {state === "pending" && (
+                          <div className="h-5 w-5 rounded-full border border-zinc-800 text-zinc-600 flex items-center justify-center text-[10px]">
+                            {idx + 1}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-2">
+                          <p
+                            className={`text-xs font-medium ${
+                              state === "active"
+                                ? "text-indigo-200 font-semibold"
+                                : state === "failed"
+                                ? "text-red-300 font-semibold"
+                                : state === "done"
+                                ? "text-zinc-200"
+                                : "text-zinc-500"
+                            }`}
+                          >
+                            {step.label}
+                          </p>
+                          {state === "active" && (
+                            <span className="text-[10px] text-indigo-400 font-mono animate-pulse">
+                              In Progress…
+                            </span>
+                          )}
+                          {state === "done" && (
+                            <span className="text-[10px] text-emerald-400/80 font-mono">
+                              Done
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-zinc-500 mt-0.5">
+                          {step.description}
+                        </p>
+                        {state === "failed" && deploymentError && (
+                          <p className="text-xs text-red-400 mt-2 font-mono bg-red-950/60 p-2 rounded border border-red-900/60">
+                            Error: {deploymentError}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Success Result Box */}
+              {liveUrl && (
+                <div className="rounded-xl border border-emerald-500/40 bg-emerald-950/30 p-4 mt-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2 text-xs font-semibold text-emerald-400">
+                      <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+                      Provisioned on CloudFront CDN
+                    </div>
+                    <a
+                      href={liveUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sm font-mono text-white underline hover:text-emerald-300 transition break-all"
+                    >
+                      {liveUrl}
+                    </a>
+                  </div>
+                  <a
+                    href={liveUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-500 px-4 py-2 text-xs font-semibold text-zinc-950 hover:bg-emerald-400 transition"
+                  >
+                    <span>Visit Live Site</span>
+                    <span>&rarr;</span>
+                  </a>
+                </div>
+              )}
+
+              {/* General Failure Message */}
+              {currentDeployStage === "failed" && !failedStage && deploymentError && (
+                <div className="rounded-xl border border-red-900/50 bg-red-950/40 p-4 text-xs font-mono text-red-300">
+                  {deploymentError}
+                </div>
+              )}
             </div>
           )}
 
+          {/* Analysis JSON viewer */}
           {result && (
             <div className="space-y-2">
-              <span className="text-xs font-medium text-zinc-400 uppercase tracking-wider">Analysis Manifest</span>
-              <pre className="overflow-auto rounded-xl border border-zinc-800 bg-zinc-950 p-4 text-xs font-mono text-zinc-300">
+              <h3 className="text-sm font-medium text-zinc-300">Analysis Result (Bedrock)</h3>
+              <pre className="overflow-x-auto rounded-xl border border-zinc-800 bg-zinc-950 p-4 text-xs text-zinc-300">
                 {result}
               </pre>
             </div>
           )}
         </section>
 
-        {/* Deployment History Section */}
+        {/* Deployments History List */}
         <section className="space-y-4">
           <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-lg font-semibold">Deployment History</h2>
-              <p className="text-sm text-zinc-400">Past deployments provisioned to AWS.</p>
-            </div>
+            <h2 className="text-lg font-semibold">Deployment History</h2>
             <button
+              className="text-xs text-zinc-400 hover:text-white transition"
+              disabled={isLoadingDeployments}
               onClick={fetchDeployments}
-              className="text-xs text-zinc-400 hover:text-white transition flex items-center gap-1.5"
             >
-              <span>↻ Refresh</span>
+              {isLoadingDeployments ? "Refreshing…" : "Refresh"}
             </button>
           </div>
 
           {isLoadingDeployments && deployments.length === 0 ? (
-            <div className="py-8 text-center text-sm text-zinc-500">Loading deployment history…</div>
+            <div className="rounded-2xl border border-zinc-800 bg-zinc-900/20 p-8 text-center text-sm text-zinc-500">
+              Loading deployment history…
+            </div>
           ) : deployments.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-zinc-800 p-8 text-center text-sm text-zinc-500">
-              No deployments yet. Enter a repository above to deploy your first site.
+            <div className="rounded-2xl border border-zinc-800 bg-zinc-900/20 p-8 text-center text-sm text-zinc-500">
+              No deployments recorded yet.
             </div>
           ) : (
-            <div className="overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900/30">
-              <table className="w-full text-left text-sm">
-                <thead className="border-b border-zinc-800 bg-zinc-900/60 text-xs uppercase text-zinc-400">
-                  <tr>
-                    <th className="px-6 py-3.5">Repository</th>
-                    <th className="px-6 py-3.5">Status</th>
-                    <th className="px-6 py-3.5">Live URL</th>
-                    <th className="px-6 py-3.5">Timestamp</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-zinc-800/60">
-                  {deployments.map((d, index) => (
-                    <tr key={`${d.owner}/${d.repo}-${d.timestamp}-${index}`} className="hover:bg-zinc-800/30 transition">
-                      <td className="px-6 py-4 font-medium text-white">
-                        <span className="text-zinc-400">{d.owner}/</span>{d.repo}
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-950 px-2.5 py-0.5 text-xs font-medium text-emerald-400 border border-emerald-800/40">
-                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                          {d.status || "deployed"}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4">
-                        {d.liveUrl ? (
-                          <a
-                            href={d.liveUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="font-mono text-xs text-sky-400 hover:text-sky-300 underline"
-                          >
-                            {d.liveUrl}
-                          </a>
-                        ) : (
-                          <span className="text-zinc-500">—</span>
-                        )}
-                      </td>
-                      <td className="px-6 py-4 text-xs text-zinc-400">
-                        {d.timestamp ? new Date(d.timestamp).toLocaleString() : "—"}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="divide-y divide-zinc-800/80 rounded-2xl border border-zinc-800 bg-zinc-900/30 overflow-hidden">
+              {deployments.map((item, idx) => (
+                <div
+                  key={`${item.owner}-${item.repo}-${item.timestamp || idx}`}
+                  className="flex flex-col gap-2 px-6 py-4 sm:flex-row sm:items-center sm:justify-between hover:bg-zinc-900/50 transition"
+                >
+                  <div className="space-y-1">
+                    <p className="font-semibold text-sm text-white">
+                      {item.owner}/{item.repo}
+                    </p>
+                    <p className="text-xs text-zinc-500">
+                      {item.timestamp ? new Date(item.timestamp).toLocaleString() : "Recent"}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <span
+                      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                        item.status === "deployed"
+                          ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                          : "bg-amber-500/10 text-amber-400 border border-amber-500/20"
+                      }`}
+                    >
+                      <span
+                        className={`h-1.5 w-1.5 rounded-full ${
+                          item.status === "deployed" ? "bg-emerald-400" : "bg-amber-400 animate-pulse"
+                        }`}
+                      />
+                      {item.status}
+                    </span>
+                    {item.liveUrl ? (
+                      <a
+                        className="inline-flex items-center gap-1 text-xs text-indigo-400 hover:text-indigo-300 underline font-mono"
+                        href={item.liveUrl}
+                        rel="noreferrer"
+                        target="_blank"
+                      >
+                        Visit Site &rarr;
+                      </a>
+                    ) : (
+                      <span className="text-xs text-zinc-600">—</span>
+                    )}
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </section>
@@ -340,11 +574,10 @@ function DashboardContent() {
   );
 }
 
-export default function DashboardPage() {
+export default function Dashboard() {
   return (
     <SessionProvider>
       <DashboardContent />
     </SessionProvider>
   );
 }
-
