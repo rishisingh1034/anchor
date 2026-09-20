@@ -272,9 +272,13 @@ export function DeployProgress({
       )}
 
       {/* General Failure Message */}
-      {currentDeployStage === "failed" && !failedStage && deploymentError && (
-        <div className="rounded-xl border border-red-900/50 bg-red-950/40 p-4 text-xs font-mono text-red-300">
-          {deploymentError}
+      {currentDeployStage === "failed" && deploymentError && (
+        <div className="rounded-xl border border-red-900/60 bg-red-950/50 p-4 text-xs font-mono text-red-200 flex items-start gap-2.5">
+          <span className="text-red-400 font-bold text-sm leading-none">⚠️</span>
+          <div className="flex-1">
+            <span className="font-semibold block text-red-300 mb-0.5">Deployment Notice:</span>
+            <span>{deploymentError}</span>
+          </div>
         </div>
       )}
     </div>

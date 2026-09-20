@@ -188,7 +188,7 @@ export default function Home() {
         const stage =
           data && typeof data === "object" && "stage" in data && typeof data.stage === "string"
             ? data.stage
-            : "deploy";
+            : "";
 
         setDemoError(msg);
         setDemoFailedStage(stage);
