@@ -4,10 +4,19 @@
 > Transform any GitHub repository into a globally distributed, secure static web application on Amazon S3 + CloudFront Edge CDN in under 30 seconds with Amazon Bedrock generative framework detection and zero manual cloud configuration.
 
 [![Live Demo](https://img.shields.io/badge/Live%20Demo-AWS%20Amplify-527FFF?style=for-the-badge&logo=aws-amplify&logoColor=white)](https://main.dnnu4lkh82cpn.amplifyapp.com/)
+[![Video Demo](https://img.shields.io/badge/YouTube-Video%20Demo-FF0000?style=for-the-badge&logo=youtube&logoColor=white)](https://youtu.be/Y5CgQXDM7aY)
 [![AWS Region](https://img.shields.io/badge/AWS%20Region-us--east--1-FF9900?style=for-the-badge&logo=amazon-aws&logoColor=white)](https://aws.amazon.com/)
 [![Next.js](https://img.shields.io/badge/Next.js-15.5-black?style=for-the-badge&logo=next.js&logoColor=white)](https://nextjs.org/)
 [![Amazon Bedrock](https://img.shields.io/badge/Amazon%20Bedrock-GenAI-232F3E?style=for-the-badge&logo=amazon-aws&logoColor=white)](https://aws.amazon.com/bedrock/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0-3178C6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+
+---
+
+## 🎥 Video Demo & Walkthrough
+
+[![Anchor — Serverless AWS Deployment Engine Demo](https://img.youtube.com/vi/Y5CgQXDM7aY/maxresdefault.jpg)](https://youtu.be/Y5CgQXDM7aY)
+
+> 📺 **Watch the end-to-end demo on YouTube**: [https://youtu.be/Y5CgQXDM7aY](https://youtu.be/Y5CgQXDM7aY)
 
 ---
 
